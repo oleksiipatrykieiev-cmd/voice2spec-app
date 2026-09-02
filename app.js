@@ -1,7 +1,8 @@
-let currentMarkdownContent = '';
+let currentMarkdownLines = [];
 let currentFileSha = null;
 let branches = JSON.parse(localStorage.getItem('app_branches')) || [];
 let selectedParentTask = null;
+let sortableInstance = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('geminiKey').value = localStorage.getItem('openai_key') || '';
@@ -11,9 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (branches.length > 0) loadTasksFromGithub();
 });
 
-function toggleSettings() {
-    document.getElementById('settings').classList.toggle('hidden');
-}
+function toggleSettings() { document.getElementById('settings').classList.toggle('hidden'); }
 
 function addBranch() {
     const input = document.getElementById('newBranchName');
@@ -48,7 +47,6 @@ function renderBranches() {
         item.innerHTML = `<span>${b.name} <span class="text-slate-500">(${b.file})</span></span>
             <button onclick="removeBranch(${index})" class="text-rose-400 font-bold px-1">✕</button>`;
         listContainer.appendChild(item);
-
         const option = document.createElement('option');
         option.value = b.file;
         option.textContent = b.name;
@@ -66,11 +64,8 @@ function saveSettings() {
     loadTasksFromGithub();
 }
 
-function showLog(msg) {
-    document.getElementById('statusLog').innerText = msg;
-}
+function showLog(msg) { document.getElementById('statusLog').innerText = msg; }
 
-// Загрузка и рендеринг дерева задач
 async function loadTasksFromGithub() {
     const githubToken = localStorage.getItem('github_token');
     const repoName = localStorage.getItem('repo_name');
@@ -78,7 +73,6 @@ async function loadTasksFromGithub() {
     const tasksList = document.getElementById('tasksList');
 
     if (!githubToken || !repoName || !filePath) return;
-
     tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">⏳ Загрузка задач...</div>';
 
     try {
@@ -88,63 +82,131 @@ async function loadTasksFromGithub() {
         if (res.ok) {
             const data = await res.json();
             currentFileSha = data.sha;
-            currentMarkdownContent = decodeURIComponent(escape(atob(data.content)));
-            renderTreeList(currentMarkdownContent);
+            currentMarkdownLines = decodeURIComponent(escape(atob(data.content))).split('\n');
+            renderTreeList();
         } else {
-            tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">Файл задач еще не создан</div>';
-            currentMarkdownContent = `# Архитектура модуля\n\n## Задачи\n`;
+            currentMarkdownLines = ['# Архитектура модуля', '', '## Задачи', ''];
             currentFileSha = null;
+            renderTreeList();
         }
     } catch (e) {
         showLog('❌ Ошибка загрузки задач: ' + e.message);
     }
 }
 
-function renderTreeList(markdown) {
+function renderTreeList() {
     const tasksList = document.getElementById('tasksList');
     tasksList.innerHTML = '';
 
-    const lines = markdown.split('\n');
+    const filterNew = document.getElementById('f_new').checked;
+    const filterDone = document.getElementById('f_done').checked;
+    const filterDel = document.getElementById('f_del').checked;
+    const filterPri = document.getElementById('f_pri').value;
+
     let hasTasks = false;
 
-    lines.forEach((line, index) => {
+    currentMarkdownLines.forEach((line, index) => {
         const trimmed = line.trim();
         if (trimmed.startsWith('- [') || trimmed.startsWith('* [') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+            
+            const isDone = line.includes('[x]');
+            const isDeleted = line.includes('~~');
+            const isNew = !isDone && !isDeleted;
+
+            // Извлечение тегов
+            const hasMedia = /!\[.*?\]\(.*?\)/.test(line);
+            const isPinned = line.includes('[📌]');
+            let priority = '⚪'; // Обычный по умолчанию
+            if (line.includes('[P:🔴]')) priority = '🔴';
+            if (line.includes('[P:🟡]')) priority = '🟡';
+
+            // Применение фильтров
+            if (!filterNew && isNew) return;
+            if (!filterDone && isDone && !isDeleted) return;
+            if (!filterDel && isDeleted) return;
+            if (filterPri !== 'all' && priority !== filterPri) return;
+
             hasTasks = true;
 
-            // Определение глубины вложенности по пробелам
             const indentSpaces = line.search(/\S/);
             const indentLevel = Math.floor(indentSpaces / 2);
+            
+            // Очистка текста от служебных символов для рендера
+            let cleanText = line.replace(/^[\s-*]+(\[[ x]\])?\s*/, '')
+                                .replace(/\[📌\]/g, '')
+                                .replace(/\[P:[🔴🟡⚪]\]/g, '')
+                                .replace(/!\[.*?\]\(.*?\)/g, '')
+                                .replace(/~~/g, '')
+                                .trim();
 
-            const isCheckbox = line.includes('[ ]') || line.includes('[x]');
-            const isDone = line.includes('[x]');
-            const cleanText = line.replace(/^[\s-*]+(\[[ x]\])?\s*/, '');
+            // Создание карточки (Swipe Wrapper)
+            const wrapper = document.createElement('div');
+            wrapper.className = `swipe-wrap rounded-xl border my-1 cursor-pointer 
+                ${isDeleted ? 'opacity-50' : ''} 
+                ${isPinned ? 'border-amber-500/50 bg-slate-800' : (isDone ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-800/80 border-slate-700/80')}`;
+            wrapper.style.marginLeft = `${indentLevel * 12}px`;
+            wrapper.dataset.index = index;
+
+            const actionBtn = document.createElement('div');
+            actionBtn.className = 'swipe-action';
+            actionBtn.innerHTML = 'Удалить?';
+            actionBtn.onclick = () => confirmDeleteTask(index);
 
             const card = document.createElement('div');
-            card.style.marginLeft = `${indentLevel * 12}px`;
-            card.className = `flex items-center justify-between p-2 my-1 rounded-xl text-xs border ${isDone ? 'bg-slate-950/40 border-slate-800 text-slate-500 line-through' : 'bg-slate-800/80 border-slate-700/80 text-slate-200'}`;
+            card.className = `swipe-content flex items-center justify-between p-2.5 rounded-xl text-xs touch-pan-y ${isDone || isDeleted ? 'text-slate-500' : 'text-slate-200'}`;
+            if (isDone || isDeleted) card.classList.add('line-through');
 
             card.innerHTML = `
-                <div class="flex items-center gap-2 flex-1 min-w-0 pr-2">
-                    ${isCheckbox ? `<input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleTaskDone(${index})" class="rounded border-slate-700 text-indigo-600 focus:ring-0">` : '<span class="text-indigo-400">🔹</span>'}
-                    <span class="break-all font-mono text-[11px]">${cleanText}</span>
+                <div class="flex items-center gap-2 flex-1 min-w-0 pr-2 drag-handle select-none">
+                    <button onclick="cyclePriority(${index})" class="text-sm cursor-pointer shrink-0">${priority}</button>
+                    ${isPinned ? '<span class="text-amber-400 shrink-0">📌</span>' : ''}
+                    ${line.includes('[ ]') || line.includes('[x]') ? `<input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleTaskDone(${index})" class="rounded border-slate-700 text-indigo-600 focus:ring-0 shrink-0">` : '<span class="text-indigo-400 shrink-0">🔹</span>'}
+                    <span class="break-all font-mono text-[11px] leading-tight flex-1">${cleanText}</span>
+                    ${hasMedia ? '<span class="text-slate-400 shrink-0 ml-1">📎</span>' : ''}
                 </div>
-                <div class="flex gap-1 shrink-0">
-                    <button onclick="setReplyTarget(${index}, '${cleanText.replace(/'/g, "\\'")}')" class="p-1 hover:bg-indigo-900/50 rounded text-indigo-300" title="Добавить комментарий/ветку">💬</button>
-                    ${isCheckbox ? `
-                        <button onclick="${isDone ? `rollbackTask(${index})` : `deleteTask(${index})`}" class="p-1 hover:bg-slate-700 rounded text-rose-400" title="${isDone ? 'Откатить' : 'Удалить'}">
-                            ${isDone ? '↩️' : '🗑️'}
-                        </button>
-                    ` : ''}
+                <div class="flex gap-1 shrink-0 bg-slate-800/80 rounded p-0.5">
+                    <button onclick="togglePin(${index})" class="p-1 hover:bg-slate-700 rounded ${isPinned ? 'text-amber-400' : 'text-slate-500'}" title="Закрепить">📌</button>
+                    <button onclick="setReplyTarget(${index}, '${cleanText.replace(/'/g, "\\'")}')" class="p-1 hover:bg-indigo-900/50 rounded text-indigo-300" title="Добавить комментарий">💬</button>
                 </div>
             `;
-            tasksList.appendChild(card);
+
+            wrapper.appendChild(actionBtn);
+            wrapper.appendChild(card);
+            tasksList.appendChild(wrapper);
+
+            // Логика Swipe to Delete
+            let startX = 0, currentX = 0;
+            card.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, {passive: true});
+            card.addEventListener('touchmove', e => {
+                currentX = e.touches[0].clientX;
+                let diff = currentX - startX;
+                if (diff > 0 && diff < 100) card.style.transform = `translateX(${diff}px)`;
+            }, {passive: true});
+            card.addEventListener('touchend', e => {
+                let diff = currentX - startX;
+                if (diff > 50) {
+                    card.style.transform = `translateX(80px)`; // Открыто
+                    setTimeout(() => { if(wrapper.parentElement) card.style.transform = `translateX(0)`; }, 3000);
+                } else {
+                    card.style.transform = `translateX(0)`; // Возврат
+                }
+            });
         }
     });
 
-    if (!hasTasks) {
-        tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">Задач пока нет</div>';
-    }
+    if (!hasTasks) tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">Задач пока нет</div>';
+
+    // Инициализация Drag and Drop
+    if (sortableInstance) sortableInstance.destroy();
+    sortableInstance = new Sortable(tasksList, {
+        animation: 150,
+        handle: '.drag-handle',
+        delay: 200,
+        delayOnTouchOnly: true,
+        onEnd: function (evt) {
+            reorderMarkdown(evt.oldIndex, evt.newIndex);
+        }
+    });
 }
 
 function setReplyTarget(lineIndex, text) {
@@ -159,29 +221,105 @@ function cancelReply() {
     document.getElementById('replyTargetBox').classList.add('hidden');
 }
 
-// Прямые манипуляции с файлом на GitHub
-async function saveMarkdownDirectly(newMarkdown, commitMsg) {
+// Управление тегами и статусами в строке Markdown
+function cyclePriority(lineIndex) {
+    let line = currentMarkdownLines[lineIndex];
+    if(line.includes('[P:🔴]')) line = line.replace('[P:🔴]', '[P:🟡]');
+    else if(line.includes('[P:🟡]')) line = line.replace('[P:🟡]', '[P:⚪]');
+    else if(line.includes('[P:⚪]')) line = line.replace('[P:⚪]', '[P:🔴]');
+    else line += ' [P:🔴]';
+    currentMarkdownLines[lineIndex] = line;
+    saveMarkdownDirectly('fix(spec): изменен приоритет');
+}
+
+function togglePin(lineIndex) {
+    let line = currentMarkdownLines[lineIndex];
+    if(line.includes('[📌]')) {
+        currentMarkdownLines[lineIndex] = line.replace(' [📌]', '').replace('[📌]', '');
+    } else {
+        currentMarkdownLines[lineIndex] = line + ' [📌]';
+        // Перенос закрепленной в самый верх задач
+        moveToTop(lineIndex);
+        return; 
+    }
+    saveMarkdownDirectly('fix(spec): изменен статус закрепления');
+}
+
+function toggleTaskDone(lineIndex) {
+    let line = currentMarkdownLines[lineIndex];
+    if (line.includes('- [ ]')) {
+        currentMarkdownLines[lineIndex] = line.replace('- [ ]', '- [x]');
+        moveToBottom(lineIndex); // Выполненные вниз
+        return;
+    } else {
+        currentMarkdownLines[lineIndex] = line.replace('- [x]', '- [ ]');
+    }
+    saveMarkdownDirectly('fix(spec): переключить статус задачи');
+}
+
+function confirmDeleteTask(lineIndex) {
+    let line = currentMarkdownLines[lineIndex];
+    // Оборачиваем текст задачи в ~~ для зачеркивания
+    if(!line.includes('~~')) {
+        const textMatch = line.match(/^([\s-*]+(?:\[[ x]\])?\s*)(.*)$/);
+        if(textMatch) {
+            currentMarkdownLines[lineIndex] = `${textMatch[1]}~~${textMatch[2]}~~`;
+        }
+    }
+    moveToBottom(lineIndex); // Удаленные отправляем вниз
+}
+
+function moveToTop(lineIndex) {
+    const line = currentMarkdownLines.splice(lineIndex, 1)[0];
+    const headerIndex = currentMarkdownLines.findIndex(l => l.includes('## Задачи'));
+    const insertAt = headerIndex !== -1 ? headerIndex + 1 : 0;
+    currentMarkdownLines.splice(insertAt, 0, line);
+    saveMarkdownDirectly('fix(spec): закрепление задачи');
+}
+
+function moveToBottom(lineIndex) {
+    const line = currentMarkdownLines.splice(lineIndex, 1)[0];
+    currentMarkdownLines.push(line);
+    saveMarkdownDirectly('fix(spec): обновление статуса');
+}
+
+function reorderMarkdown(oldDOMIndex, newDOMIndex) {
+    const items = document.querySelectorAll('.swipe-wrap');
+    if (items.length === 0) return;
+
+    const oldLineIndex = parseInt(items[newDOMIndex].dataset.index);
+    let targetLineIndex = null;
+    
+    // Определяем куда вставлять в массиве строк (относительно соседей)
+    if (newDOMIndex > 0) {
+        targetLineIndex = parseInt(items[newDOMIndex - 1].dataset.index) + (oldDOMIndex < newDOMIndex ? 0 : 1);
+    } else {
+        targetLineIndex = parseInt(items[1].dataset.index) - (oldDOMIndex > newDOMIndex ? 0 : 1);
+    }
+
+    if(targetLineIndex !== null && oldLineIndex !== targetLineIndex) {
+        const line = currentMarkdownLines.splice(oldLineIndex, 1)[0];
+        // Корректировка индекса после удаления элемента
+        if (targetLineIndex > oldLineIndex) targetLineIndex--;
+        currentMarkdownLines.splice(targetLineIndex, 0, line);
+        saveMarkdownDirectly('fix(spec): сортировка задач');
+    }
+}
+
+async function saveMarkdownDirectly(commitMsg) {
     const githubToken = localStorage.getItem('github_token');
     const repoName = localStorage.getItem('repo_name');
     const filePath = document.getElementById('moduleSelect').value;
 
     showLog('🚀 Обновление файла...');
+    const newMarkdown = currentMarkdownLines.join('\n');
 
     try {
         const ghUrl = `https://api.github.com/repos/${repoName}/contents/${filePath}`;
-        const putBody = {
-            message: commitMsg,
-            content: btoa(unescape(encodeURIComponent(newMarkdown))),
-            branch: 'main'
-        };
+        const putBody = { message: commitMsg, content: btoa(unescape(encodeURIComponent(newMarkdown))), branch: 'main' };
         if (currentFileSha) putBody.sha = currentFileSha;
 
-        const res = await fetch(ghUrl, {
-            method: 'PUT',
-            headers: { 'Authorization': `token ${githubToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(putBody)
-        });
-
+        const res = await fetch(ghUrl, { method: 'PUT', headers: { 'Authorization': `token ${githubToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(putBody) });
         if (res.ok) {
             showLog('✅ Сохранено!');
             cancelReply();
@@ -192,29 +330,6 @@ async function saveMarkdownDirectly(newMarkdown, commitMsg) {
     }
 }
 
-function toggleTaskDone(lineIndex) {
-    const lines = currentMarkdownContent.split('\n');
-    if (lines[lineIndex].includes('- [ ]')) {
-        lines[lineIndex] = lines[lineIndex].replace('- [ ]', '- [x]');
-    } else {
-        lines[lineIndex] = lines[lineIndex].replace('- [x]', '- [ ]');
-    }
-    saveMarkdownDirectly(lines.join('\n'), 'fix(spec): переключить статус задачи');
-}
-
-function deleteTask(lineIndex) {
-    const lines = currentMarkdownContent.split('\n');
-    lines.splice(lineIndex, 1);
-    saveMarkdownDirectly(lines.join('\n'), 'fix(spec): удалить задачу');
-}
-
-function rollbackTask(lineIndex) {
-    const lines = currentMarkdownContent.split('\n');
-    const cleanText = lines[lineIndex].replace(/^[ \t]*-[ \t]*\[[ x]\][ \t]*/, '');
-    lines[lineIndex] = `- [ ] (ОТМЕНИТЬ И УДАЛИТЬ ИЗ КОДА): ${cleanText}`;
-    saveMarkdownDirectly(lines.join('\n'), 'fix(spec): запрос на откат задачи');
-}
-
 const fileToBase64 = file => new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -222,12 +337,10 @@ const fileToBase64 = file => new Promise((resolve, reject) => {
     reader.onerror = error => reject(error);
 });
 
-// Отправка новой идеи или вложенного комментария
 async function processAndPush() {
     const openaiKey = localStorage.getItem('openai_key');
     const githubToken = localStorage.getItem('github_token');
     const repoName = localStorage.getItem('repo_name');
-    const filePath = document.getElementById('moduleSelect').value;
     const userIdea = document.getElementById('ideaText').value.trim();
     const fileInput = document.getElementById('mediaInput');
 
@@ -251,69 +364,51 @@ async function processAndPush() {
             const ghRes = await fetch(`https://api.github.com/repos/${repoName}/contents/${githubMediaPath}`, {
                 method: 'PUT',
                 headers: { 'Authorization': `token ${githubToken}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: `upload media ${fileName}`,
-                    content: base64Content,
-                    branch: 'main'
-                })
+                body: JSON.stringify({ message: `upload media ${fileName}`, content: base64Content, branch: 'main' })
             });
 
             if (ghRes.ok) imageUrlForMarkdown = `media/${fileName}`;
         }
 
-        showLog('🤖 Анализ и интеграция ветки...');
+        showLog('🤖 Интеграция ветки...');
 
         const targetContext = selectedParentTask 
             ? `ПОЛЬЗОВАТЕЛЬ ДОБАВЛЯЕТ ВЛОЖЕННЫЙ КОММЕНТАРИЙ/УТОЧНЕНИЕ К ЗАДАЧЕ: "${selectedParentTask.text}"`
             : `ПОЛЬЗОВАТЕЛЬ СОЗДАЕТ НОВУЮ ВЕРХНЕУРОВНЕВУЮ ИДЕЮ/ЭПИК.`;
 
-        const systemPrompt = `Ты — Senior Technical Product Manager проекта VEI (LINK AI).
+        const systemPrompt = `Ты — AI-архитектор проекта. Ниже представлен текущий Markdown-файл спецификации.
 
 ${targetContext}
 
-ТВОЯ ЗАДАЧА: 
-Ты — AI-архитектор проекта. Ниже представлен текущий Markdown-файл спецификации модуля и новая идея от разработчика.
-Обнови файл спецификации: аккуратно добавь новую идею в виде чекбокса задачи (- [ ]) или обнови логику/Mermaid-схему, если требуется. Верни ТОЛЬКО итоговый обновленный текст Markdown файла целиком.
+ТВОЯ ЗАДАЧА:
+Интегрируй этот ввод (идею пользователя) в существующий Markdown-файл. Не меняй контекст остальных задач.
+- Если это ДОПОЛНЕНИЕ: вставь новые вложенные пункты с отступом (2 пробела) сразу ПОСЛЕ родительской строки "${selectedParentTask ? selectedParentTask.text : ''}".
+- Если это НОВАЯ идея: добавь ее СРАЗУ ПОСЛЕ заголовка "## Задачи" (в самый верх списка задач).
+- Формат новой идеи: - [ ] Текст идеи [P:⚪]
+${imageUrlForMarkdown ? `- Обязательно добавь ссылку на файл: ![Скриншот](${imageUrlForMarkdown})` : ''}
 
-Проанализируй ввод пользователя не меняй контекст и не меняй нечего в самом тексте Это должна быть точно такая заметка как ее написал пользователь только исправь граматические ошибки если нужно и не разбивай задачи сам. просто твоя задача зафиксировать это в файле то что написал пользователь (текст + прикрепленное фото/скриншот).
-Интегрируй этот ввод в существующий Markdown-файл:
-- Если это ДОПОЛНЕНИЕ к существующей задаче: вставь новые вложенные подзадачи с отступом (2 или 4 пробела) сразу ПОСЛЕ родительской строки "${selectedParentTask ? selectedParentTask.text : ''}".
-- Если это НОВАЯ идея: добавь ее в конец файла.
-${imageUrlForMarkdown ? `- Обязательно вставь ссылку на медиафайл: ![Скриншот](${imageUrlForMarkdown})` : ''}
-
-Возвращай ТОЛЬКО итоговый обновленный текст Markdown целиком. в
+Возвращай ТОЛЬКО итоговый обновленный текст Markdown целиком.
 
 Текущий Markdown:
-${currentMarkdownContent}`;
+${currentMarkdownLines.join('\n')}`;
 
         const userContent = [{ type: 'text', text: userIdea || 'Добавление медиафайла к ветке.' }];
         if (fileInput && fileInput.files && fileInput.files[0]) {
             const base64Img = await fileToBase64(fileInput.files[0]);
-            userContent.push({
-                type: 'image_url',
-                image_url: { url: `data:${fileInput.files[0].type};base64,${base64Img}` }
-            });
+            userContent.push({ type: 'image_url', image_url: { url: `data:${fileInput.files[0].type};base64,${base64Img}` } });
         }
 
         const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${openaiKey}`
-            },
-            body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userContent }
-                ]
-            })
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+            body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }] })
         });
 
         const aiData = await aiRes.json();
         const updatedMarkdown = aiData.choices[0].message.content.replace(/^```markdown\n?/, '').replace(/\n?```$/, '');
 
-        await saveMarkdownDirectly(updatedMarkdown, `feat(spec): дополнить ветку идеей`);
+        currentMarkdownLines = updatedMarkdown.split('\n');
+        await saveMarkdownDirectly(`feat(spec): дополнение ветки идей`);
 
         document.getElementById('ideaText').value = '';
         if (fileInput) {
