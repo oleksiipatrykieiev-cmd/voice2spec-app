@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice2Spec MVP</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 p-4 max-w-md mx-auto font-sans antialiased">
+
+    <!-- Шапка -->
+    <div class="flex justify-between items-center mb-6 border-b border-slate-800 pb-3">
+        <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+            Voice2Spec
+        </h1>
+        <button onclick="toggleSettings()" class="text-2xl hover:scale-110 transition-transform">⚙️</button>
+    </div>
+
+    <!-- Модалка настроек (BYOK + Ветки) -->
+    <div id="settings" class="hidden bg-slate-800 p-4 rounded-2xl mb-6 border border-slate-700 shadow-xl space-y-4">
+        <h2 class="font-bold text-sm text-slate-300">Настройки интеграций</h2>
+        
+        <div class="space-y-2">
+            <input id="geminiKey" type="password" placeholder="Gemini API Key" class="w-full p-2.5 bg-slate-900 rounded-xl border border-slate-700 text-xs focus:outline-none focus:border-blue-500">
+            <input id="githubToken" type="password" placeholder="GitHub Personal Access Token" class="w-full p-2.5 bg-slate-900 rounded-xl border border-slate-700 text-xs focus:outline-none focus:border-blue-500">
+            <input id="repoName" type="text" placeholder="username/repo-name" class="w-full p-2.5 bg-slate-900 rounded-xl border border-slate-700 text-xs focus:outline-none focus:border-blue-500">
+        </div>
+
+        <hr class="border-slate-700">
+
+        <!-- Добавление новых веток/модулей -->
+        <div>
+            <h3 class="font-bold text-xs text-slate-300 mb-2">Ветки / Модули проекта</h3>
+            <div class="flex gap-2 mb-2">
+                <input id="newBranchName" type="text" placeholder="Название (напр. VEI Translate)" class="flex-1 p-2.5 bg-slate-900 rounded-xl border border-slate-700 text-xs focus:outline-none">
+                <button onclick="addBranch()" class="bg-indigo-600 hover:bg-indigo-500 px-4 rounded-xl font-bold text-lg">+</button>
+            </div>
+            
+            <!-- Список созданных веток -->
+            <div id="branchesList" class="space-y-1.5 max-h-32 overflow-y-auto"></div>
+        </div>
+
+        <button onclick="saveSettings()" class="w-full bg-blue-600 hover:bg-blue-500 py-2.5 rounded-xl font-bold text-xs transition-colors">Сохранить всё</button>
+    </div>
+
+    <!-- Форма ввода идеи -->
+    <div class="space-y-4">
+        <div>
+            <label class="block text-xs text-slate-400 mb-1 font-medium">Выбери ветку проекта:</label>
+            <select id="moduleSelect" class="w-full p-3 bg-slate-800 rounded-xl border border-slate-700 text-sm focus:outline-none">
+                <!-- Заполняется динамически -->
+            </select>
+        </div>
+
+        <div>
+            <label class="block text-xs text-slate-400 mb-1 font-medium">Текст или надиктованная мысль:</label>
+            <textarea id="ideaText" rows="4" placeholder="Например: Покрась фон блока вывода в зеленый..." class="w-full p-3 bg-slate-800 rounded-xl border border-slate-700 text-sm focus:outline-none focus:border-blue-500"></textarea>
+        </div>
+
+        <div class="flex gap-2">
+            <button id="recordBtn" onclick="toggleRecord()" class="flex-1 bg-rose-600 hover:bg-rose-500 p-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors">
+                <span id="recIcon">🎙️</span> <span id="recordStatus">Запись голоса</span>
+            </button>
+        </div>
+
+        <button onclick="processAndPush()" id="sendBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 p-4 rounded-xl font-bold text-base shadow-lg transition-all flex justify-center items-center gap-2">
+            <span>Запушить в GitHub</span> 🚀
+        </button>
+    </div>
+
+    <!-- Статус отправки -->
+    <div id="statusLog" class="mt-4 text-xs text-center text-slate-400 font-mono min-h-[20px]"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

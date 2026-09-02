@@ -1,0 +1,15 @@
+{
+  "short_name": "Voice2Spec",
+  "name": "Voice2Spec: AI Spec Generator",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/25/25231.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "display": "standalone"
+}
