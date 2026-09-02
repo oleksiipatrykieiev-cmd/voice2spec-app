@@ -4,7 +4,7 @@ let branches = JSON.parse(localStorage.getItem('app_branches')) || [];
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('geminiKey').value = localStorage.getItem('openai_key') || '';
-    document.getElementById('githubToken').value = localStorage.getItem('github_token') || '';
+    document.getElementById('githubToken').value = localStorage.getItem('githubToken') || '';
     document.getElementById('repoName').value = localStorage.getItem('repo_name') || '';
     renderBranches();
     if (branches.length > 0) loadTasksFromGithub();
@@ -229,30 +229,93 @@ function toggleRecord() {
     }
 }
 
-// Запрос к OpenAI при добавлении новой идеи
+// Вспомогательная функция для конвертации картинки в Base64
+const fileToBase64 = file => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = error => reject(error);
+});
+
+// Запрос к OpenAI при добавлении новой идеи (Текст + Картинка)
 async function processAndPush() {
     const openaiKey = localStorage.getItem('openai_key');
     const githubToken = localStorage.getItem('github_token');
     const repoName = localStorage.getItem('repo_name');
     const filePath = document.getElementById('moduleSelect').value;
     const userIdea = document.getElementById('ideaText').value.trim();
+    const fileInput = document.getElementById('mediaInput');
 
     if (!openaiKey || !githubToken || !repoName) return alert('Заполни ключи в настройках!');
-    if (!userIdea) return alert('Введи или надиктуй текст идеи!');
+    if (!userIdea && (!fileInput || !fileInput.files || !fileInput.files[0])) return alert('Введи идею или прикрепи фото!');
 
     const sendBtn = document.getElementById('sendBtn');
     sendBtn.disabled = true;
-    showLog('🤖 Обработка идеи ИИ...');
+    showLog('🚀 Обработка данных...');
 
     try {
-        const prompt = `Ты — AI-архитектор. Обнови Markdown-файл спецификации: добавь новую идею в виде чекбокса (- [ ]). Верни ТОЛЬКО итоговый обновленный текст Markdown.
+        let imageUrlForMarkdown = '';
+
+        // 1. Загрузка фото в GitHub (если прикреплено)
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+            showLog('📷 Загрузка медиафайла в репозиторий...');
+            const file = fileInput.files[0];
+            const base64Content = await fileToBase64(file);
+            const fileName = `img_${Date.now()}.${file.name.split('.').pop()}`;
+            const githubMediaPath = `docs/media/${fileName}`;
+
+            const ghRes = await fetch(`https://api.github.com/repos/${repoName}/contents/${githubMediaPath}`, {
+                method: 'PUT',
+                headers: { 'Authorization': `token ${githubToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: `upload media ${fileName}`,
+                    content: base64Content,
+                    branch: 'main'
+                })
+            });
+
+            if (ghRes.ok) {
+                imageUrlForMarkdown = `media/${fileName}`;
+            } else {
+                showLog('⚠️ Ошибка загрузки медиа, продолжаем без него');
+            }
+        }
+
+        showLog('🤖 Анализ идеи и структуры...');
+
+        // 2. Формирование Промпта с контекстом VEI
+        const systemPrompt = `Ты — Senior Technical Product Manager и AI-архитектор национального цифрового экосистемного хаба VEI (LINK AI).
+
+КОНТЕКСТ ПРОЕКТА:
+- VEI — экосистема из 5 модулей: VEI LINK (ИИ-ассистент/лента), VEI SCAN (фото-скан), VEI Translate (переводчик), VEI Commune (сервисы), VEI Språk (язык).
+
+ТВОЯ ЗАДАЧА:
+Проанализируй мысль пользователя (текст и/или прикрепленное фото).
+Сформируй из нее древовидное ТЗ для ИИ-разработчика и добавь его в конец Markdown-файла.
+1. Выдели Главную идею в виде родительского чекбокса: - [ ] **[ЭПИК] Название фичи**
+2. Ниже распиши логику и контекст (без чекбоксов).
+3. Разбей идею на конкретные подзадачи для разработки с чекбоксами (- [ ]).
+${imageUrlForMarkdown ? `4. Обязательно вставь ссылку на интерфейс/схему в формате: ![Скриншот](${imageUrlForMarkdown})` : ''}
 
 Текущий файл:
-${currentMarkdownContent}
+${currentMarkdownContent}`;
 
-Новая идея:
-${userIdea}`;
+        const userContent = [];
+        if (userIdea) {
+            userContent.push({ type: 'text', text: userIdea });
+        } else {
+            userContent.push({ type: 'text', text: 'Проанализируй этот медиафайл и опиши задачи для реализации.' });
+        }
 
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+            const base64Img = await fileToBase64(fileInput.files[0]);
+            userContent.push({
+                type: 'image_url',
+                image_url: { url: `data:${fileInput.files[0].type};base64,${base64Img}` }
+            });
+        }
+
+        // 3. Запрос к OpenAI
         const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -261,15 +324,26 @@ ${userIdea}`;
             },
             body: JSON.stringify({
                 model: 'gpt-4o-mini',
-                messages: [{ role: 'user', content: prompt }]
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userContent }
+                ]
             })
         });
 
         const aiData = await aiRes.json();
         const updatedMarkdown = aiData.choices[0].message.content.replace(/^```markdown\n?/, '').replace(/\n?```$/, '');
 
-        await saveMarkdownDirectly(updatedMarkdown, `feat(spec): добавить идею "${userIdea.slice(0, 20)}..."`);
+        // 4. Обновление файла на GitHub
+        const commitText = userIdea ? `"${userIdea.slice(0, 25)}..."` : "с медиафайлом";
+        await saveMarkdownDirectly(updatedMarkdown, `feat(spec): добавить структурированную идею ${commitText}`);
+        
+        // 5. Очистка полей ввода
         document.getElementById('ideaText').value = '';
+        if (fileInput) {
+            fileInput.value = '';
+            document.getElementById('fileNameDisplay').innerText = 'Прикрепить фото/скриншот';
+        }
 
     } catch (e) {
         showLog('❌ Ошибка: ' + e.message);
