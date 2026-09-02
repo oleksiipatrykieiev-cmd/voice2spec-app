@@ -2,7 +2,9 @@ let currentMarkdownLines = [];
 let currentFileSha = null;
 let branches = JSON.parse(localStorage.getItem('app_branches')) || [];
 let selectedParentTask = null;
+let activeModalLineIndex = null;
 let sortableInstance = null;
+let orderHasChanged = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('geminiKey').value = localStorage.getItem('openai_key') || '';
@@ -13,6 +15,15 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function toggleSettings() { document.getElementById('settings').classList.toggle('hidden'); }
+
+function showLoading(text = 'Синхронизация с GitHub...') {
+    document.getElementById('overlayText').innerText = text;
+    document.getElementById('loadingOverlay').classList.remove('hidden');
+}
+
+function hideLoading() {
+    document.getElementById('loadingOverlay').classList.add('hidden');
+}
 
 function addBranch() {
     const input = document.getElementById('newBranchName');
@@ -73,7 +84,7 @@ async function loadTasksFromGithub() {
     const tasksList = document.getElementById('tasksList');
 
     if (!githubToken || !repoName || !filePath) return;
-    tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">⏳ Загрузка задач...</div>';
+    showLoading('Загрузка задач из репозитория...');
 
     try {
         const ghUrl = `https://api.github.com/repos/${repoName}/contents/${filePath}`;
@@ -91,122 +102,219 @@ async function loadTasksFromGithub() {
         }
     } catch (e) {
         showLog('❌ Ошибка загрузки задач: ' + e.message);
+    } finally {
+        hideLoading();
     }
 }
 
 function renderTreeList() {
     const tasksList = document.getElementById('tasksList');
     tasksList.innerHTML = '';
+    orderHasChanged = false;
+    document.getElementById('saveOrderBar').classList.add('hidden');
 
     const filterNew = document.getElementById('f_new').checked;
+    const filterWip = document.getElementById('f_wip').checked;
     const filterDone = document.getElementById('f_done').checked;
     const filterDel = document.getElementById('f_del').checked;
     const filterPri = document.getElementById('f_pri').value;
 
     let hasTasks = false;
 
-    currentMarkdownLines.forEach((line, index) => {
+    // Автоматическая сортировка: Закрепленные строго НАВЕРХУ
+    const tasksWithMetadata = currentMarkdownLines.map((line, index) => {
         const trimmed = line.trim();
-        if (trimmed.startsWith('- [') || trimmed.startsWith('* [') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-            
-            const isDone = line.includes('[x]');
-            const isDeleted = line.includes('~~');
-            const isNew = !isDone && !isDeleted;
-
-            // Извлечение тегов
-            const hasMedia = /!\[.*?\]\(.*?\)/.test(line);
-            const isPinned = line.includes('[📌]');
-            let priority = '⚪'; // Обычный по умолчанию
-            if (line.includes('[P:🔴]')) priority = '🔴';
-            if (line.includes('[P:🟡]')) priority = '🟡';
-
-            // Применение фильтров
-            if (!filterNew && isNew) return;
-            if (!filterDone && isDone && !isDeleted) return;
-            if (!filterDel && isDeleted) return;
-            if (filterPri !== 'all' && priority !== filterPri) return;
-
-            hasTasks = true;
-
-            const indentSpaces = line.search(/\S/);
-            const indentLevel = Math.floor(indentSpaces / 2);
-            
-            // Очистка текста от служебных символов для рендера
-            let cleanText = line.replace(/^[\s-*]+(\[[ x]\])?\s*/, '')
-                                .replace(/\[📌\]/g, '')
-                                .replace(/\[P:[🔴🟡⚪]\]/g, '')
-                                .replace(/!\[.*?\]\(.*?\)/g, '')
-                                .replace(/~~/g, '')
-                                .trim();
-
-            // Создание карточки (Swipe Wrapper)
-            const wrapper = document.createElement('div');
-            wrapper.className = `swipe-wrap rounded-xl border my-1 cursor-pointer 
-                ${isDeleted ? 'opacity-50' : ''} 
-                ${isPinned ? 'border-amber-500/50 bg-slate-800' : (isDone ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-800/80 border-slate-700/80')}`;
-            wrapper.style.marginLeft = `${indentLevel * 12}px`;
-            wrapper.dataset.index = index;
-
-            const actionBtn = document.createElement('div');
-            actionBtn.className = 'swipe-action';
-            actionBtn.innerHTML = 'Удалить?';
-            actionBtn.onclick = () => confirmDeleteTask(index);
-
-            const card = document.createElement('div');
-            card.className = `swipe-content flex items-center justify-between p-2.5 rounded-xl text-xs touch-pan-y ${isDone || isDeleted ? 'text-slate-500' : 'text-slate-200'}`;
-            if (isDone || isDeleted) card.classList.add('line-through');
-
-            card.innerHTML = `
-                <div class="flex items-center gap-2 flex-1 min-w-0 pr-2 drag-handle select-none">
-                    <button onclick="cyclePriority(${index})" class="text-sm cursor-pointer shrink-0">${priority}</button>
-                    ${isPinned ? '<span class="text-amber-400 shrink-0">📌</span>' : ''}
-                    ${line.includes('[ ]') || line.includes('[x]') ? `<input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleTaskDone(${index})" class="rounded border-slate-700 text-indigo-600 focus:ring-0 shrink-0">` : '<span class="text-indigo-400 shrink-0">🔹</span>'}
-                    <span class="break-all font-mono text-[11px] leading-tight flex-1">${cleanText}</span>
-                    ${hasMedia ? '<span class="text-slate-400 shrink-0 ml-1">📎</span>' : ''}
-                </div>
-                <div class="flex gap-1 shrink-0 bg-slate-800/80 rounded p-0.5">
-                    <button onclick="togglePin(${index})" class="p-1 hover:bg-slate-700 rounded ${isPinned ? 'text-amber-400' : 'text-slate-500'}" title="Закрепить">📌</button>
-                    <button onclick="setReplyTarget(${index}, '${cleanText.replace(/'/g, "\\'")}')" class="p-1 hover:bg-indigo-900/50 rounded text-indigo-300" title="Добавить комментарий">💬</button>
-                </div>
-            `;
-
-            wrapper.appendChild(actionBtn);
-            wrapper.appendChild(card);
-            tasksList.appendChild(wrapper);
-
-            // Логика Swipe to Delete
-            let startX = 0, currentX = 0;
-            card.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, {passive: true});
-            card.addEventListener('touchmove', e => {
-                currentX = e.touches[0].clientX;
-                let diff = currentX - startX;
-                if (diff > 0 && diff < 100) card.style.transform = `translateX(${diff}px)`;
-            }, {passive: true});
-            card.addEventListener('touchend', e => {
-                let diff = currentX - startX;
-                if (diff > 50) {
-                    card.style.transform = `translateX(80px)`; // Открыто
-                    setTimeout(() => { if(wrapper.parentElement) card.style.transform = `translateX(0)`; }, 3000);
-                } else {
-                    card.style.transform = `translateX(0)`; // Возврат
-                }
-            });
-        }
+        const isTask = trimmed.startsWith('- [') || trimmed.startsWith('* [') || trimmed.startsWith('- ') || trimmed.startsWith('* ');
+        return {
+            line,
+            index,
+            isTask,
+            isPinned: line.includes('[📌]'),
+            isDone: line.includes('[x]'),
+            isDeleted: line.includes('~~')
+        };
     });
 
-    if (!hasTasks) tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">Задач пока нет</div>';
+    tasksWithMetadata.forEach((item) => {
+        if (!item.isTask) return;
+
+        const line = item.line;
+        const index = item.index;
+
+        const isDone = item.isDone;
+        const isDeleted = item.isDeleted;
+        const isWip = line.includes('[🛠️]');
+        const isNew = !isDone && !isDeleted && !isWip;
+
+        const hasMedia = /!\[.*?\]\(.*?\)/.test(line);
+        const isPinned = item.isPinned;
+        let priority = '⚪';
+        if (line.includes('[P:🔴]')) priority = '🔴';
+        if (line.includes('[P:🟡]')) priority = '🟡';
+
+        // Фильтрация
+        if (!filterNew && isNew) return;
+        if (!filterWip && isWip) return;
+        if (!filterDone && isDone && !isDeleted) return;
+        if (!filterDel && isDeleted) return;
+        if (filterPri !== 'all' && priority !== filterPri) return;
+
+        hasTasks = true;
+
+        const indentSpaces = line.search(/\S/);
+        const indentLevel = Math.floor(indentSpaces / 2);
+
+        let cleanText = line.replace(/^[\s-*]+(\[[ x]\])?\s*/, '')
+                            .replace(/\[📌\]/g, '')
+                            .replace(/\[P:[🔴🟡⚪]\]/g, '')
+                            .replace(/\[🛠️\]/g, '')
+                            .replace(/!\[.*?\]\(.*?\)/g, '')
+                            .replace(/~~/g, '')
+                            .trim();
+
+        const wrapper = document.createElement('div');
+        wrapper.className = `swipe-wrap rounded-xl border my-1 bg-slate-800 ${isPinned ? 'border-amber-400 ring-1 ring-amber-400/30' : (isDone ? 'border-slate-800 bg-slate-900' : 'border-slate-700')}`;
+        wrapper.style.marginLeft = `${indentLevel * 14}px`;
+        wrapper.dataset.index = index;
+
+        // Действия свайпов
+        const actionLeft = document.createElement('div');
+        actionLeft.className = 'swipe-action-left';
+        actionLeft.innerHTML = 'Удалить';
+        actionLeft.onclick = () => confirmDeleteBranch(index);
+
+        const actionRight = document.createElement('div');
+        actionRight.className = 'swipe-action-right';
+        actionRight.innerHTML = 'Меню ⚙️';
+        actionRight.onclick = () => openCardModal(index);
+
+        const card = document.createElement('div');
+        card.className = `swipe-content flex items-center justify-between p-3 bg-slate-800 rounded-xl text-xs touch-pan-y ${isDone || isDeleted ? 'text-slate-500 line-through bg-slate-900' : 'text-slate-100'}`;
+
+        // Декоративные ветки дерева
+        const treeBranchIcon = indentLevel > 0 ? '<span class="text-indigo-400/60 font-bold mr-1">└─</span>' : '';
+
+        card.innerHTML = `
+            <div class="flex items-center gap-2 flex-1 min-w-0 pr-1 drag-handle select-none">
+                ${treeBranchIcon}
+                <button onclick="openCardModal(${index})" class="text-xs cursor-pointer shrink-0">${priority}</button>
+                ${isPinned ? '<span class="text-amber-400 text-xs shrink-0" title="Закреплено">📌</span>' : ''}
+                ${isWip ? '<span class="text-amber-400 text-[10px] font-bold bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-600/40 shrink-0">В работе 🛠️</span>' : ''}
+                <input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleTaskDone(${index})" class="rounded border-slate-700 text-indigo-600 focus:ring-0 shrink-0">
+                <span class="break-all font-sans text-xs leading-snug flex-1">${cleanText}</span>
+                ${hasMedia ? '<span class="text-slate-400 shrink-0 ml-1">📎</span>' : ''}
+            </div>
+            <button onclick="openCardModal(${index})" class="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 shrink-0 ml-1" title="Настройки">⚙️</button>
+        `;
+
+        wrapper.appendChild(actionLeft);
+        wrapper.appendChild(actionRight);
+        wrapper.appendChild(card);
+        tasksList.appendChild(wrapper);
+
+        // Логика двухстороннего свайпа
+        let startX = 0, currentX = 0;
+        card.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, {passive: true});
+        card.addEventListener('touchmove', e => {
+            currentX = e.touches[0].clientX;
+            let diff = currentX - startX;
+            if (Math.abs(diff) < 120) card.style.transform = `translateX(${diff}px)`;
+        }, {passive: true});
+        card.addEventListener('touchend', e => {
+            let diff = currentX - startX;
+            if (diff < -60) {
+                // Свайп ВЛЕВО -> Удаление
+                card.style.transform = `translateX(-90px)`;
+                setTimeout(() => { if (wrapper.parentElement) card.style.transform = `translateX(0)`; }, 3500);
+            } else if (diff > 60) {
+                // Свайп ВПРАВО -> Меню
+                card.style.transform = `translateX(90px)`;
+                setTimeout(() => { openCardModal(index); card.style.transform = `translateX(0)`; }, 200);
+            } else {
+                card.style.transform = `translateX(0)`;
+            }
+        });
+    });
+
+    if (!hasTasks) tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-4">Задач пока нет</div>';
 
     // Инициализация Drag and Drop
     if (sortableInstance) sortableInstance.destroy();
     sortableInstance = new Sortable(tasksList, {
         animation: 150,
         handle: '.drag-handle',
-        delay: 200,
+        delay: 150,
         delayOnTouchOnly: true,
         onEnd: function (evt) {
-            reorderMarkdown(evt.oldIndex, evt.newIndex);
+            applyDOMReorder(evt.oldIndex, evt.newIndex);
         }
     });
+}
+
+// Модальное окно функций карточки
+function openCardModal(lineIndex) {
+    activeModalLineIndex = lineIndex;
+    document.getElementById('cardModal').classList.remove('hidden');
+}
+
+function closeCardModal() {
+    activeModalLineIndex = null;
+    document.getElementById('cardModal').classList.add('hidden');
+}
+
+function setCardStatus(status) {
+    if (activeModalLineIndex === null) return;
+    let line = currentMarkdownLines[activeModalLineIndex];
+
+    line = line.replace('[🛠️]', '').replace('[x]', '[ ]');
+    if (status === 'wip') line = line.replace('- [ ]', '- [ ] [🛠️]');
+    if (status === 'done') {
+        line = line.replace('- [ ]', '- [x]');
+        moveToBottom(activeModalLineIndex);
+        closeCardModal();
+        return;
+    }
+
+    currentMarkdownLines[activeModalLineIndex] = line;
+    closeCardModal();
+    saveMarkdownDirectly('fix(spec): изменен статус задачи');
+}
+
+function setCardPriority(priority) {
+    if (activeModalLineIndex === null) return;
+    let line = currentMarkdownLines[activeModalLineIndex];
+    line = line.replace(/\[P:[🔴🟡⚪]\]/g, '').trim();
+    line += ` [P:${priority}]`;
+    currentMarkdownLines[activeModalLineIndex] = line;
+    closeCardModal();
+    saveMarkdownDirectly('fix(spec): изменен приоритет');
+}
+
+function modalTogglePin() {
+    if (activeModalLineIndex === null) return;
+    let line = currentMarkdownLines[activeModalLineIndex];
+    if (line.includes('[📌]')) {
+        currentMarkdownLines[activeModalLineIndex] = line.replace(' [📌]', '').replace('[📌]', '');
+        closeCardModal();
+        saveMarkdownDirectly('fix(spec): открепление задачи');
+    } else {
+        currentMarkdownLines[activeModalLineIndex] = line + ' [📌]';
+        closeCardModal();
+        moveToTop(activeModalLineIndex);
+    }
+}
+
+function modalAddComment() {
+    if (activeModalLineIndex === null) return;
+    const cleanText = currentMarkdownLines[activeModalLineIndex].replace(/^[\s-*]+(\[[ x]\])?\s*/, '').replace(/\[📌\]/g, '').replace(/\[P:[🔴🟡⚪]\]/g, '').trim();
+    setReplyTarget(activeModalLineIndex, cleanText);
+    closeCardModal();
+}
+
+function modalDeleteBranch() {
+    if (activeModalLineIndex === null) return;
+    confirmDeleteBranch(activeModalLineIndex);
+    closeCardModal();
 }
 
 function setReplyTarget(lineIndex, text) {
@@ -221,52 +329,35 @@ function cancelReply() {
     document.getElementById('replyTargetBox').classList.add('hidden');
 }
 
-// Управление тегами и статусами в строке Markdown
-function cyclePriority(lineIndex) {
-    let line = currentMarkdownLines[lineIndex];
-    if(line.includes('[P:🔴]')) line = line.replace('[P:🔴]', '[P:🟡]');
-    else if(line.includes('[P:🟡]')) line = line.replace('[P:🟡]', '[P:⚪]');
-    else if(line.includes('[P:⚪]')) line = line.replace('[P:⚪]', '[P:🔴]');
-    else line += ' [P:🔴]';
-    currentMarkdownLines[lineIndex] = line;
-    saveMarkdownDirectly('fix(spec): изменен приоритет');
-}
-
-function togglePin(lineIndex) {
-    let line = currentMarkdownLines[lineIndex];
-    if(line.includes('[📌]')) {
-        currentMarkdownLines[lineIndex] = line.replace(' [📌]', '').replace('[📌]', '');
-    } else {
-        currentMarkdownLines[lineIndex] = line + ' [📌]';
-        // Перенос закрепленной в самый верх задач
-        moveToTop(lineIndex);
-        return; 
-    }
-    saveMarkdownDirectly('fix(spec): изменен статус закрепления');
-}
-
 function toggleTaskDone(lineIndex) {
     let line = currentMarkdownLines[lineIndex];
     if (line.includes('- [ ]')) {
-        currentMarkdownLines[lineIndex] = line.replace('- [ ]', '- [x]');
-        moveToBottom(lineIndex); // Выполненные вниз
-        return;
+        currentMarkdownLines[lineIndex] = line.replace('- [ ]', '- [x]').replace('[🛠️]', '');
+        moveToBottom(lineIndex);
     } else {
         currentMarkdownLines[lineIndex] = line.replace('- [x]', '- [ ]');
+        saveMarkdownDirectly('fix(spec): снята отметка выполнения');
     }
-    saveMarkdownDirectly('fix(spec): переключить статус задачи');
 }
 
-function confirmDeleteTask(lineIndex) {
-    let line = currentMarkdownLines[lineIndex];
-    // Оборачиваем текст задачи в ~~ для зачеркивания
-    if(!line.includes('~~')) {
-        const textMatch = line.match(/^([\s-*]+(?:\[[ x]\])?\s*)(.*)$/);
-        if(textMatch) {
-            currentMarkdownLines[lineIndex] = `${textMatch[1]}~~${textMatch[2]}~~`;
+// Удаление родительской ветки и всех дочерних комментариев
+function confirmDeleteBranch(lineIndex) {
+    if (!confirm('Точно удалить эту идею и все ее вложенные комментарии?')) return;
+
+    const parentIndent = currentMarkdownLines[lineIndex].search(/\S/);
+    let countToDelete = 1;
+
+    for (let i = lineIndex + 1; i < currentMarkdownLines.length; i++) {
+        const currentIndent = currentMarkdownLines[i].search(/\S/);
+        if (currentIndent > parentIndent) {
+            countToDelete++;
+        } else {
+            break;
         }
     }
-    moveToBottom(lineIndex); // Удаленные отправляем вниз
+
+    currentMarkdownLines.splice(lineIndex, countToDelete);
+    saveMarkdownDirectly('fix(spec): удаление ветки задач');
 }
 
 function moveToTop(lineIndex) {
@@ -274,36 +365,33 @@ function moveToTop(lineIndex) {
     const headerIndex = currentMarkdownLines.findIndex(l => l.includes('## Задачи'));
     const insertAt = headerIndex !== -1 ? headerIndex + 1 : 0;
     currentMarkdownLines.splice(insertAt, 0, line);
-    saveMarkdownDirectly('fix(spec): закрепление задачи');
+    saveMarkdownDirectly('fix(spec): закрепление задачи наверх');
 }
 
 function moveToBottom(lineIndex) {
     const line = currentMarkdownLines.splice(lineIndex, 1)[0];
     currentMarkdownLines.push(line);
-    saveMarkdownDirectly('fix(spec): обновление статуса');
+    saveMarkdownDirectly('fix(spec): перемещение выполненного вниз');
 }
 
-function reorderMarkdown(oldDOMIndex, newDOMIndex) {
+// Ручная сортировка
+function applyDOMReorder(oldDOMIndex, newDOMIndex) {
     const items = document.querySelectorAll('.swipe-wrap');
     if (items.length === 0) return;
 
     const oldLineIndex = parseInt(items[newDOMIndex].dataset.index);
-    let targetLineIndex = null;
-    
-    // Определяем куда вставлять в массиве строк (относительно соседей)
-    if (newDOMIndex > 0) {
-        targetLineIndex = parseInt(items[newDOMIndex - 1].dataset.index) + (oldDOMIndex < newDOMIndex ? 0 : 1);
-    } else {
-        targetLineIndex = parseInt(items[1].dataset.index) - (oldDOMIndex > newDOMIndex ? 0 : 1);
-    }
+    let targetLineIndex = parseInt(items[oldDOMIndex].dataset.index);
 
-    if(targetLineIndex !== null && oldLineIndex !== targetLineIndex) {
+    if (oldLineIndex !== targetLineIndex) {
         const line = currentMarkdownLines.splice(oldLineIndex, 1)[0];
-        // Корректировка индекса после удаления элемента
-        if (targetLineIndex > oldLineIndex) targetLineIndex--;
         currentMarkdownLines.splice(targetLineIndex, 0, line);
-        saveMarkdownDirectly('fix(spec): сортировка задач');
+        orderHasChanged = true;
+        document.getElementById('saveOrderBar').classList.remove('hidden');
     }
+}
+
+function saveReorderedMarkdown() {
+    saveMarkdownDirectly('fix(spec): сохранение ручного порядка задач');
 }
 
 async function saveMarkdownDirectly(commitMsg) {
@@ -311,7 +399,7 @@ async function saveMarkdownDirectly(commitMsg) {
     const repoName = localStorage.getItem('repo_name');
     const filePath = document.getElementById('moduleSelect').value;
 
-    showLog('🚀 Обновление файла...');
+    showLoading('Сохранение изменений на GitHub...');
     const newMarkdown = currentMarkdownLines.join('\n');
 
     try {
@@ -321,12 +409,14 @@ async function saveMarkdownDirectly(commitMsg) {
 
         const res = await fetch(ghUrl, { method: 'PUT', headers: { 'Authorization': `token ${githubToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(putBody) });
         if (res.ok) {
-            showLog('✅ Сохранено!');
+            showLog('✅ Успешно сохранено!');
             cancelReply();
             await loadTasksFromGithub();
         }
     } catch (e) {
         showLog('❌ Ошибка сохранения: ' + e.message);
+    } finally {
+        hideLoading();
     }
 }
 
@@ -349,13 +439,13 @@ async function processAndPush() {
 
     const sendBtn = document.getElementById('sendBtn');
     sendBtn.disabled = true;
-    showLog('🚀 Обработка данных...');
+    showLoading('ИИ структурирует задачу...');
 
     try {
         let imageUrlForMarkdown = '';
 
         if (fileInput && fileInput.files && fileInput.files[0]) {
-            showLog('📷 Загрузка медиафайла...');
+            showLoading('Загрузка медиафайла в репозиторий...');
             const file = fileInput.files[0];
             const base64Content = await fileToBase64(file);
             const fileName = `img_${Date.now()}.${file.name.split('.').pop()}`;
@@ -370,8 +460,6 @@ async function processAndPush() {
             if (ghRes.ok) imageUrlForMarkdown = `media/${fileName}`;
         }
 
-        showLog('🤖 Интеграция ветки...');
-
         const targetContext = selectedParentTask 
             ? `ПОЛЬЗОВАТЕЛЬ ДОБАВЛЯЕТ ВЛОЖЕННЫЙ КОММЕНТАРИЙ/УТОЧНЕНИЕ К ЗАДАЧЕ: "${selectedParentTask.text}"`
             : `ПОЛЬЗОВАТЕЛЬ СОЗДАЕТ НОВУЮ ВЕРХНЕУРОВНЕВУЮ ИДЕЮ/ЭПИК.`;
@@ -381,8 +469,8 @@ async function processAndPush() {
 ${targetContext}
 
 ТВОЯ ЗАДАЧА:
-Интегрируй этот ввод (идею пользователя) в существующий Markdown-файл. Не меняй контекст остальных задач.
-- Если это ДОПОЛНЕНИЕ: вставь новые вложенные пункты с отступом (2 пробела) сразу ПОСЛЕ родительской строки "${selectedParentTask ? selectedParentTask.text : ''}".
+Интегрируй этот ввод в существующий Markdown-файл.
+- Если это ДОПОЛНЕНИЕ к существующей задаче: вставь новые вложенные пункты с отступом в 2 пробела строго ПОСЛЕ родительской строки "${selectedParentTask ? selectedParentTask.text : ''}".
 - Если это НОВАЯ идея: добавь ее СРАЗУ ПОСЛЕ заголовка "## Задачи" (в самый верх списка задач).
 - Формат новой идеи: - [ ] Текст идеи [P:⚪]
 ${imageUrlForMarkdown ? `- Обязательно добавь ссылку на файл: ![Скриншот](${imageUrlForMarkdown})` : ''}
@@ -408,7 +496,7 @@ ${currentMarkdownLines.join('\n')}`;
         const updatedMarkdown = aiData.choices[0].message.content.replace(/^```markdown\n?/, '').replace(/\n?```$/, '');
 
         currentMarkdownLines = updatedMarkdown.split('\n');
-        await saveMarkdownDirectly(`feat(spec): дополнение ветки идей`);
+        await saveMarkdownDirectly(`feat(spec): добавление идеи`);
 
         document.getElementById('ideaText').value = '';
         if (fileInput) {
@@ -420,5 +508,6 @@ ${currentMarkdownLines.join('\n')}`;
         showLog('❌ Ошибка: ' + e.message);
     } finally {
         sendBtn.disabled = false;
+        hideLoading();
     }
 }

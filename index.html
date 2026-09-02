@@ -6,18 +6,65 @@
     <title>Voice2Spec Control Panel</title>
     <link rel="manifest" href="manifest.json">
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Подключение SortableJS для перетаскивания (Drag-and-Drop) -->
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <style>
         .swipe-wrap { overflow: hidden; position: relative; }
-        .swipe-content { transition: transform 0.2s ease-out; position: relative; z-index: 10; background: inherit; width: 100%; }
-        .swipe-action { position: absolute; left: 0; top: 0; bottom: 0; width: 80px; background: #e11d48; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 11px; z-index: 1; border-radius: 0.75rem; }
-        .sortable-ghost { opacity: 0.4; }
+        .swipe-content { transition: transform 0.2s ease-out; position: relative; z-index: 10; width: 100%; }
+        .swipe-action-left { position: absolute; right: 0; top: 0; bottom: 0; width: 90px; background: #e11d48; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 11px; z-index: 1; border-radius: 0.75rem; }
+        .swipe-action-right { position: absolute; left: 0; top: 0; bottom: 0; width: 90px; background: #4f46e5; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 11px; z-index: 1; border-radius: 0.75rem; }
+        .sortable-ghost { opacity: 0.3; }
         .sortable-drag { cursor: grabbing !important; }
     </style>
 </head>
-<body class="bg-slate-900 text-slate-100 p-4 max-w-md mx-auto font-sans antialiased">
+<body class="bg-slate-900 text-slate-100 p-4 max-w-md mx-auto font-sans antialiased relative min-h-screen">
 
+    <!-- Блокирующий поп-ап сохранения -->
+    <div id="loadingOverlay" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center space-y-3">
+        <div class="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        <div id="overlayText" class="text-xs font-semibold text-slate-200">Синхронизация с GitHub...</div>
+    </div>
+
+    <!-- Модальное окно функций карточки -->
+    <div id="cardModal" class="hidden fixed inset-0 bg-slate-950/70 z-40 flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-xs p-4 shadow-2xl space-y-3">
+            <div class="flex justify-between items-center border-b border-slate-700 pb-2">
+                <h3 class="text-xs font-bold text-slate-300">Настройки карточки</h3>
+                <button onclick="closeCardModal()" class="text-slate-400 hover:text-white text-base font-bold">✕</button>
+            </div>
+            
+            <div class="space-y-1.5">
+                <label class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Статус</label>
+                <div class="grid grid-cols-3 gap-1.5">
+                    <button onclick="setCardStatus('new')" class="p-2 bg-slate-900 hover:bg-slate-700 rounded-xl text-[11px] font-medium border border-slate-700">Новая</button>
+                    <button onclick="setCardStatus('wip')" class="p-2 bg-slate-900 hover:bg-slate-700 rounded-xl text-[11px] font-medium border border-slate-700 text-amber-400">В работе 🛠️</button>
+                    <button onclick="setCardStatus('done')" class="p-2 bg-slate-900 hover:bg-slate-700 rounded-xl text-[11px] font-medium border border-slate-700 text-emerald-400">Готова ✅</button>
+                </div>
+            </div>
+
+            <div class="space-y-1.5">
+                <label class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Приоритет</label>
+                <div class="grid grid-cols-3 gap-1.5">
+                    <button onclick="setCardPriority('🔴')" class="p-2 bg-slate-900 hover:bg-slate-700 rounded-xl text-xs border border-slate-700">🔴 Важный</button>
+                    <button onclick="setCardPriority('🟡')" class="p-2 bg-slate-900 hover:bg-slate-700 rounded-xl text-xs border border-slate-700">🟡 Средний</button>
+                    <button onclick="setCardPriority('⚪')" class="p-2 bg-slate-900 hover:bg-slate-700 rounded-xl text-xs border border-slate-700">⚪ Обычный</button>
+                </div>
+            </div>
+
+            <div class="pt-2 border-t border-slate-700 space-y-2">
+                <button onclick="modalTogglePin()" class="w-full p-2.5 bg-slate-900 hover:bg-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 border border-slate-700">
+                    📌 <span id="modalPinText">Закрепить / Открепить</span>
+                </button>
+                <button onclick="modalAddComment()" class="w-full p-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-semibold flex items-center justify-center gap-2">
+                    💬 Добавить комментарий
+                </button>
+                <button onclick="modalDeleteBranch()" class="w-full p-2.5 bg-rose-900/40 hover:bg-rose-900/60 border border-rose-700/50 text-rose-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-2">
+                    🗑️ Удалить идею со всеми ветками
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Шапка -->
     <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
         <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
             Voice2Spec Control
@@ -51,7 +98,7 @@
         </select>
     </div>
 
-    <div id="replyTargetBox" class="hidden bg-indigo-950/80 border border-indigo-500/50 p-2.5 rounded-xl mb-3 flex justify-between items-center text-xs">
+    <div id="replyTargetBox" class="hidden bg-indigo-950 border border-indigo-500/50 p-2.5 rounded-xl mb-3 flex justify-between items-center text-xs">
         <div class="truncate pr-2">
             <span class="text-indigo-400 font-semibold">Дополнение к:</span>
             <span id="replyTargetText" class="text-slate-300 italic ml-1">...</span>
@@ -81,8 +128,9 @@
         </div>
         
         <!-- Фильтры -->
-        <div class="flex flex-wrap gap-2 mb-3 bg-slate-800 p-2.5 rounded-xl text-[10px] font-medium text-slate-300">
+        <div class="flex flex-wrap gap-2 mb-3 bg-slate-800 p-2.5 rounded-xl text-[10px] font-medium text-slate-300 border border-slate-700">
             <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="f_new" checked onchange="renderTreeList()"> Новые</label>
+            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="f_wip" checked onchange="renderTreeList()"> В работе</label>
             <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="f_done" checked onchange="renderTreeList()"> Готовые</label>
             <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="f_del" onchange="renderTreeList()"> Удаленные</label>
             <div class="w-px h-4 bg-slate-600 mx-1"></div>
@@ -94,9 +142,16 @@
             </select>
         </div>
 
-        <div id="tasksList" class="space-y-2 min-h-[50px]">
+        <div id="tasksList" class="space-y-2 min-h-[50px] pb-16">
             <div class="text-xs text-slate-500 italic text-center py-4">Выберите модуль для загрузки задач</div>
         </div>
+    </div>
+
+    <!-- Кнопка сохранения ручной сортировки -->
+    <div id="saveOrderBar" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-30">
+        <button onclick="saveReorderedMarkdown()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-5 py-3 rounded-2xl shadow-2xl text-xs flex items-center gap-2 border-2 border-amber-300">
+            💾 Сохранить новый порядок
+        </button>
     </div>
 
     <script src="app.js"></script>
