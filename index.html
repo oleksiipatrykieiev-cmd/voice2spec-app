@@ -9,7 +9,82 @@
 </head>
 <body class="bg-slate-900 text-slate-100 p-4 max-w-md mx-auto font-sans antialiased">
 
+    <!-- Шапка --><!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice2Spec Control Panel</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 p-4 max-w-md mx-auto font-sans antialiased">
+
     <!-- Шапка -->
+    <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+        <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+            Voice2Spec Control
+        </h1>
+        <button onclick="toggleSettings()" class="text-xl hover:scale-110 transition-transform">⚙️</button>
+    </div>
+
+    <!-- Модалка настроек -->
+    <div id="settings" class="hidden bg-slate-800 p-4 rounded-2xl mb-6 border border-slate-700 shadow-xl space-y-4">
+        <h2 class="font-bold text-sm text-slate-300">Настройки интеграций</h2>
+        <div class="space-y-2">
+            <input id="geminiKey" type="password" placeholder="OpenAI API Key (sk-...)" class="w-full p-2.5 bg-slate-900 rounded-xl border border-slate-700 text-xs text-slate-200">
+            <input id="githubToken" type="password" placeholder="GitHub Token (ghp_...)" class="w-full p-2.5 bg-slate-900 rounded-xl border border-slate-700 text-xs text-slate-200">
+            <input id="repoName" type="text" placeholder="username/repo-name" class="w-full p-2.5 bg-slate-900 rounded-xl border border-slate-700 text-xs text-slate-200">
+        </div>
+
+        <div class="border-t border-slate-700 pt-3">
+            <label class="block text-xs font-semibold text-slate-400 mb-2">Ветки / Модули:</label>
+            <div class="flex gap-2 mb-3">
+                <input id="newBranchName" type="text" placeholder="Название (напр. ВЕЙ)" class="flex-1 p-2 bg-slate-900 rounded-xl border border-slate-700 text-xs">
+                <button onclick="addBranch()" class="bg-indigo-600 hover:bg-indigo-500 font-bold px-4 py-2 rounded-xl text-xs">+</button>
+            </div>
+            <div id="branchesList" class="space-y-2 max-h-32 overflow-y-auto"></div>
+        </div>
+
+        <button onclick="saveSettings()" class="w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-2.5 rounded-xl text-xs">Сохранить настройки</button>
+    </div>
+
+    <!-- Выбор ветки -->
+    <div class="mb-4">
+        <label class="block text-xs font-semibold text-slate-400 mb-1">Выбери модуль проекта:</label>
+        <select id="moduleSelect" onchange="loadTasksFromGithub()" class="w-full p-3 bg-slate-800 rounded-xl border border-slate-700 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none">
+        </select>
+    </div>
+
+    <!-- Голосовой/Текстовый ввод -->
+    <div class="space-y-3 mb-6">
+        <textarea id="ideaText" rows="3" placeholder="Новая идея или уточнение..." class="w-full p-3 bg-slate-800 rounded-xl border border-slate-700 text-sm placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
+        
+        <div class="flex gap-2">
+            <button id="recordBtn" onclick="toggleRecord()" class="flex-1 bg-rose-600 hover:bg-rose-500 font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all">
+                🎙️ <span id="recordStatus">Запись голоса</span>
+            </button>
+            <button id="sendBtn" onclick="processAndPush()" class="flex-1 bg-emerald-600 hover:bg-emerald-500 font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all">
+                🚀 Отправить
+            </button>
+        </div>
+        <div id="statusLog" class="text-center text-xs font-mono text-slate-400 min-h-[1rem]"></div>
+    </div>
+
+    <!-- Пульт управления задачами -->
+    <div class="border-t border-slate-800 pt-4">
+        <div class="flex justify-between items-center mb-3">
+            <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Текущие задачи модуля</h2>
+            <button onclick="loadTasksFromGithub()" class="text-xs text-indigo-400 hover:text-indigo-300">🔄 Обновить</button>
+        </div>
+        <div id="tasksList" class="space-y-2">
+            <div class="text-xs text-slate-500 italic text-center py-4">Выберите модуль для загрузки задач</div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
     <div class="flex justify-between items-center mb-6 border-b border-slate-800 pb-3">
         <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
             Voice2Spec
