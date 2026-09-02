@@ -49,11 +49,11 @@
     <div class="space-y-3 mb-6">
         <textarea id="ideaText" rows="3" placeholder="Новая идея или уточнение..." class="w-full p-3 bg-slate-800 rounded-xl border border-slate-700 text-sm placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
         
-        <!-- Кнопка прикрепления файла -->
+        <!-- Кнопка прикрепления файла (с поддержкой multiple) -->
         <div class="flex items-center gap-2">
             <label class="flex-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-medium py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors">
                 📷 <span id="fileNameDisplay">Прикрепить фото/скриншот</span>
-                <input type="file" id="mediaInput" accept="image/*" class="hidden" onchange="document.getElementById('fileNameDisplay').innerText = this.files[0] ? this.files[0].name : 'Прикрепить фото/скриншот'">
+                <input type="file" id="mediaInput" accept="image/*" multiple class="hidden" onchange="document.getElementById('fileNameDisplay').innerText = this.files.length > 1 ? `Выбрано файлов: ${this.files.length}` : (this.files[0] ? this.files[0].name : 'Прикрепить фото/скриншот')">
             </label>
         </div>
         
