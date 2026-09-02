@@ -45,30 +45,26 @@
         </select>
     </div>
 
-    <!-- Голосовой/Текстовый ввод + Медиа -->
-    <div class="space-y-3 mb-6 relative">
-        
-        <!-- Индикатор режима правки (Скрыт по умолчанию) -->
-        <div id="editModeBanner" class="hidden flex justify-between items-center bg-sky-900/40 border border-sky-700/50 text-sky-300 px-3 py-2 rounded-xl text-xs mb-[-4px]">
-            <span class="font-medium">💬 Режим добавления комментария</span>
-            <button onclick="cancelEditMode()" class="hover:text-rose-400 hover:bg-slate-800 px-2 py-1 rounded text-slate-400 transition-colors">✕ Отменить</button>
+    <!-- Индикатор ответа на родительскую идею -->
+    <div id="replyTargetBox" class="hidden bg-indigo-950/80 border border-indigo-500/50 p-2.5 rounded-xl mb-3 flex justify-between items-center text-xs">
+        <div class="truncate pr-2">
+            <span class="text-indigo-400 font-semibold">Дополнение к:</span>
+            <span id="replyTargetText" class="text-slate-300 italic ml-1">...</span>
         </div>
+        <button onclick="cancelReply()" class="text-rose-400 font-bold px-2 py-0.5 hover:bg-rose-950 rounded">✕</button>
+    </div>
 
-        <textarea id="ideaText" rows="3" placeholder="Новая идея или уточнение..." class="w-full p-3 bg-slate-800 rounded-xl border border-slate-700 text-sm placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
+    <!-- Текстовый ввод + Медиа -->
+    <div class="space-y-3 mb-6">
+        <textarea id="ideaText" rows="3" placeholder="Новая идея или дополнение к выбранной ветке..." class="w-full p-3 bg-slate-800 rounded-xl border border-slate-700 text-sm placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
         
-        <!-- Кнопка прикрепления файла -->
+        <!-- Прикрепление файла -->
         <div class="flex items-center gap-2">
             <label class="flex-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-medium py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors">
                 📷 <span id="fileNameDisplay">Прикрепить фото/скриншот</span>
-                <input type="file" id="mediaInput" accept="image/*" multiple class="hidden" onchange="document.getElementById('fileNameDisplay').innerText = this.files.length > 1 ? `Выбрано файлов: ${this.files.length}` : (this.files[0] ? this.files[0].name : 'Прикрепить фото/скриншот')">
+                <input type="file" id="mediaInput" accept="image/*" class="hidden" onchange="document.getElementById('fileNameDisplay').innerText = this.files[0] ? this.files[0].name : 'Прикрепить фото/скриншот'">
             </label>
-        </div>
-        
-        <div class="flex gap-2">
-            <button id="recordBtn" onclick="toggleRecord()" class="flex-1 bg-rose-600 hover:bg-rose-500 font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all">
-                🎙️ <span id="recordStatus">Запись голоса</span>
-            </button>
-            <button id="sendBtn" onclick="processAndPush()" class="flex-1 bg-emerald-600 hover:bg-emerald-500 font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all">
+            <button id="sendBtn" onclick="processAndPush()" class="bg-emerald-600 hover:bg-emerald-500 font-bold px-5 py-2.5 rounded-xl text-xs transition-all flex items-center gap-2">
                 🚀 Отправить
             </button>
         </div>
@@ -78,7 +74,7 @@
     <!-- Пульт управления задачами -->
     <div class="border-t border-slate-800 pt-4">
         <div class="flex justify-between items-center mb-3">
-            <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Текущие задачи модуля</h2>
+            <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Дерево идей и задач</h2>
             <button onclick="loadTasksFromGithub()" class="text-xs text-indigo-400 hover:text-indigo-300">🔄 Обновить</button>
         </div>
         <div id="tasksList" class="space-y-2">
