@@ -1,279 +1,76 @@
-let currentMarkdownContent = '';
-let currentFileSha = null;
-let branches = JSON.parse(localStorage.getItem('app_branches')) || [];
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice2Spec Control Panel</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 p-4 max-w-md mx-auto font-sans antialiased">
 
-document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('geminiKey').value = localStorage.getItem('openai_key') || '';
-    document.getElementById('githubToken').value = localStorage.getItem('github_token') || '';
-    document.getElementById('repoName').value = localStorage.getItem('repo_name') || '';
-    renderBranches();
-    if (branches.length > 0) loadTasksFromGithub();
-});
+    <!-- Шапка -->
+    <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+        <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+            Voice2Spec Control
+        </h1>
+        <button onclick="toggleSettings()" class="text-xl hover:scale-110 transition-transform">⚙️</button>
+    </div>
 
-function toggleSettings() {
-    document.getElementById('settings').classList.toggle('hidden');
-}
+    <!-- Модалка настроек -->
+    <div id="settings" class="hidden bg-slate-800 p-4 rounded-2xl mb-6 border border-slate-700 shadow-xl space-y-4">
+        <h2 class="font-bold text-sm text-slate-300">Настройки интеграций</h2>
+        <div class="space-y-2">
+            <input id="geminiKey" type="password" placeholder="OpenAI API Key (sk-...)" class="w-full p-2.5 bg-slate-900 rounded-xl border border-slate-700 text-xs text-slate-200">
+            <input id="githubToken" type="password" placeholder="GitHub Token (ghp_...)" class="w-full p-2.5 bg-slate-900 rounded-xl border border-slate-700 text-xs text-slate-200">
+            <input id="repoName" type="text" placeholder="username/repo-name" class="w-full p-2.5 bg-slate-900 rounded-xl border border-slate-700 text-xs text-slate-200">
+        </div>
 
-function addBranch() {
-    const input = document.getElementById('newBranchName');
-    const name = input.value.trim();
-    if (!name) return;
-    const fileName = 'docs/' + name.toLowerCase().replace(/[^a-z0-9а-я]/g, '_') + '.md';
-    branches.push({ name: name, file: fileName });
-    input.value = '';
-    renderBranches();
-}
-
-function removeBranch(index) {
-    branches.splice(index, 1);
-    renderBranches();
-}
-
-function renderBranches() {
-    const listContainer = document.getElementById('branchesList');
-    const selectContainer = document.getElementById('moduleSelect');
-    listContainer.innerHTML = '';
-    selectContainer.innerHTML = '';
-
-    if (branches.length === 0) {
-        selectContainer.innerHTML = '<option value="">(Добавьте ветку в ⚙️)</option>';
-        listContainer.innerHTML = '<div class="text-xs text-slate-500 italic">Нет добавленных веток</div>';
-        return;
-    }
-
-    branches.forEach((b, index) => {
-        const item = document.createElement('div');
-        item.className = 'flex justify-between items-center bg-slate-900 p-2 rounded-lg text-xs';
-        item.innerHTML = `<span>${b.name} <span class="text-slate-500">(${b.file})</span></span>
-            <button onclick="removeBranch(${index})" class="text-rose-400 font-bold px-1">✕</button>`;
-        listContainer.appendChild(item);
-
-        const option = document.createElement('option');
-        option.value = b.file;
-        option.textContent = b.name;
-        selectContainer.appendChild(option);
-    });
-}
-
-function saveSettings() {
-    localStorage.setItem('openai_key', document.getElementById('geminiKey').value.trim());
-    localStorage.setItem('github_token', document.getElementById('githubToken').value.trim());
-    localStorage.setItem('repo_name', document.getElementById('repoName').value.trim());
-    localStorage.setItem('app_branches', JSON.stringify(branches));
-    toggleSettings();
-    showLog('✅ Настройки сохранены!');
-    loadTasksFromGithub();
-}
-
-function showLog(msg) {
-    document.getElementById('statusLog').innerText = msg;
-}
-
-// Загрузка и парсинг задач из GitHub
-async function loadTasksFromGithub() {
-    const githubToken = localStorage.getItem('github_token');
-    const repoName = localStorage.getItem('repo_name');
-    const filePath = document.getElementById('moduleSelect').value;
-    const tasksList = document.getElementById('tasksList');
-
-    if (!githubToken || !repoName || !filePath) return;
-
-    tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">⏳ Загрузка задач...</div>';
-
-    try {
-        const ghUrl = `https://api.github.com/repos/${repoName}/contents/${filePath}`;
-        const res = await fetch(ghUrl, { headers: { 'Authorization': `token ${githubToken}` } });
-
-        if (res.ok) {
-            const data = await res.json();
-            currentFileSha = data.sha;
-            currentMarkdownContent = decodeURIComponent(escape(atob(data.content)));
-            renderTasksList(currentMarkdownContent);
-        } else {
-            tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">Файл задач еще не создан</div>';
-            currentMarkdownContent = `# Архитектура модуля\n\n## Задачи\n`;
-            currentFileSha = null;
-        }
-    } catch (e) {
-        showLog('❌ Ошибка загрузки задач: ' + e.message);
-    }
-}
-
-function renderTasksList(markdown) {
-    const tasksList = document.getElementById('tasksList');
-    tasksList.innerHTML = '';
-
-    const lines = markdown.split('\n');
-    const taskLines = lines.map((line, index) => ({ line, index })).filter(item => item.line.trim().startsWith('- ['));
-
-    if (taskLines.length === 0) {
-        tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">Задач пока нет</div>';
-        return;
-    }
-
-    taskLines.forEach(({ line, index }) => {
-        const isDone = line.includes('- [x]');
-        const taskText = line.replace(/- \[[ x]\]\s*/, '');
-
-        const card = document.createElement('div');
-        card.className = `flex items-center justify-between p-2.5 rounded-xl text-xs border ${isDone ? 'bg-slate-950/50 border-slate-800 text-slate-500 line-through' : 'bg-slate-800 border-slate-700 text-slate-200'}`;
-
-        card.innerHTML = `
-            <div class="flex items-center gap-2 flex-1 pr-2">
-                <input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleTaskDone(${index})" class="rounded border-slate-700 text-indigo-600 focus:ring-0">
-                <span class="break-all">${taskText}</span>
+        <div class="border-t border-slate-700 pt-3">
+            <label class="block text-xs font-semibold text-slate-400 mb-2">Ветки / Модули:</label>
+            <div class="flex gap-2 mb-3">
+                <input id="newBranchName" type="text" placeholder="Название (напр. ВЕЙ)" class="flex-1 p-2 bg-slate-900 rounded-xl border border-slate-700 text-xs">
+                <button onclick="addBranch()" class="bg-indigo-600 hover:bg-indigo-500 font-bold px-4 py-2 rounded-xl text-xs">+</button>
             </div>
-            <div class="flex gap-1">
-                ${!isDone ? `<button onclick="editTask(${index}, '${taskText.replace(/'/g, "\\'")}')" class="p-1 hover:bg-slate-700 rounded text-slate-400">✏️</button>` : ''}
-                <button onclick="${isDone ? `rollbackTask(${index})` : `deleteTask(${index})`}" class="p-1 hover:bg-slate-700 rounded text-rose-400" title="${isDone ? 'Откатить реализацию' : 'Удалить'}">
-                    ${isDone ? '↩️' : '🗑️'}
-                </button>
-            </div>
-        `;
-        tasksList.appendChild(card);
-    });
-}
+            <div id="branchesList" class="space-y-2 max-h-32 overflow-y-auto"></div>
+        </div>
 
-// Прямые манипуляции с файлом на GitHub (Без ИИ)
-async function saveMarkdownDirectly(newMarkdown, commitMsg) {
-    const githubToken = localStorage.getItem('github_token');
-    const repoName = localStorage.getItem('repo_name');
-    const filePath = document.getElementById('moduleSelect').value;
+        <button onclick="saveSettings()" class="w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-2.5 rounded-xl text-xs">Сохранить настройки</button>
+    </div>
 
-    showLog('🚀 Обновление файла...');
+    <!-- Выбор ветки -->
+    <div class="mb-4">
+        <label class="block text-xs font-semibold text-slate-400 mb-1">Выбери модуль проекта:</label>
+        <select id="moduleSelect" onchange="loadTasksFromGithub()" class="w-full p-3 bg-slate-800 rounded-xl border border-slate-700 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none">
+        </select>
+    </div>
 
-    try {
-        const ghUrl = `https://api.github.com/repos/${repoName}/contents/${filePath}`;
-        const putBody = {
-            message: commitMsg,
-            content: btoa(unescape(encodeURIComponent(newMarkdown))),
-            branch: 'main'
-        };
-        if (currentFileSha) putBody.sha = currentFileSha;
+    <!-- Голосовой/Текстовый ввод -->
+    <div class="space-y-3 mb-6">
+        <textarea id="ideaText" rows="3" placeholder="Новая идея или уточнение..." class="w-full p-3 bg-slate-800 rounded-xl border border-slate-700 text-sm placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
+        
+        <div class="flex gap-2">
+            <button id="recordBtn" onclick="toggleRecord()" class="flex-1 bg-rose-600 hover:bg-rose-500 font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all">
+                🎙️ <span id="recordStatus">Запись голоса</span>
+            </button>
+            <button id="sendBtn" onclick="processAndPush()" class="flex-1 bg-emerald-600 hover:bg-emerald-500 font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all">
+                🚀 Отправить
+            </button>
+        </div>
+        <div id="statusLog" class="text-center text-xs font-mono text-slate-400 min-h-[1rem]"></div>
+    </div>
 
-        const res = await fetch(ghUrl, {
-            method: 'PUT',
-            headers: { 'Authorization': `token ${githubToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(putBody)
-        });
+    <!-- Пульт управления задачами -->
+    <div class="border-t border-slate-800 pt-4">
+        <div class="flex justify-between items-center mb-3">
+            <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Текущие задачи модуля</h2>
+            <button onclick="loadTasksFromGithub()" class="text-xs text-indigo-400 hover:text-indigo-300">🔄 Обновить</button>
+        </div>
+        <div id="tasksList" class="space-y-2">
+            <div class="text-xs text-slate-500 italic text-center py-4">Выберите модуль для загрузки задач</div>
+        </div>
+    </div>
 
-        if (res.ok) {
-            showLog('✅ Сохранено!');
-            await loadTasksFromGithub();
-        }
-    } catch (e) {
-        showLog('❌ Ошибка сохранения: ' + e.message);
-    }
-}
-
-function toggleTaskDone(lineIndex) {
-    const lines = currentMarkdownContent.split('\n');
-    if (lines[lineIndex].includes('- [ ]')) {
-        lines[lineIndex] = lines[lineIndex].replace('- [ ]', '- [x]');
-    } else {
-        lines[lineIndex] = lines[lineIndex].replace('- [x]', '- [ ]');
-    }
-    saveMarkdownDirectly(lines.join('\n'), 'fix(spec): переключить статус задачи');
-}
-
-function deleteTask(lineIndex) {
-    const lines = currentMarkdownContent.split('\n');
-    lines.splice(lineIndex, 1);
-    saveMarkdownDirectly(lines.join('\n'), 'fix(spec): удалить задачу');
-}
-
-function rollbackTask(lineIndex) {
-    const lines = currentMarkdownContent.split('\n');
-    const cleanText = lines[lineIndex].replace(/- \[[ x]\]\s*/, '');
-    lines[lineIndex] = `- [ ] (ОТМЕНИТЬ И УДАЛИТЬ ИЗ КОДА): ${cleanText}`;
-    saveMarkdownDirectly(lines.join('\n'), 'fix(spec): запрос на откат задачи');
-}
-
-function editTask(lineIndex, oldText) {
-    document.getElementById('ideaText').value = oldText;
-    deleteTask(lineIndex);
-}
-
-// Голосовой ввод
-let recognition;
-let isRecording = false;
-
-if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SpeechRecognition();
-    recognition.lang = 'ru-RU';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onresult = (e) => {
-        let transcript = '';
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-            transcript += e.results[i][0].transcript;
-        }
-        document.getElementById('ideaText').value = transcript;
-    };
-}
-
-function toggleRecord() {
-    if (!recognition) return alert('Голосовой ввод не поддерживается браузером.');
-    if (!isRecording) {
-        recognition.start();
-        isRecording = true;
-        document.getElementById('recordStatus').innerText = 'Запись...';
-        document.getElementById('recordBtn').classList.add('bg-amber-600', 'animate-pulse');
-    } else {
-        recognition.stop();
-        isRecording = false;
-        document.getElementById('recordStatus').innerText = 'Запись голоса';
-        document.getElementById('recordBtn').classList.remove('bg-amber-600', 'animate-pulse');
-    }
-}
-
-// Запрос к OpenAI при добавлении новой идеи
-async function processAndPush() {
-    const openaiKey = localStorage.getItem('openai_key');
-    const githubToken = localStorage.getItem('github_token');
-    const repoName = localStorage.getItem('repo_name');
-    const filePath = document.getElementById('moduleSelect').value;
-    const userIdea = document.getElementById('ideaText').value.trim();
-
-    if (!openaiKey || !githubToken || !repoName) return alert('Заполни ключи в настройках!');
-    if (!userIdea) return alert('Введи или надиктуй текст идеи!');
-
-    const sendBtn = document.getElementById('sendBtn');
-    sendBtn.disabled = true;
-    showLog('🤖 Обработка идеи ИИ...');
-
-    try {
-        const prompt = `Ты — AI-архитектор. Обнови Markdown-файл спецификации: добавь новую идею в виде чекбокса (- [ ]). Верни ТОЛЬКО итоговый обновленный текст Markdown.
-
-Текущий файл:
-${currentMarkdownContent}
-
-Новая идея:
-${userIdea}`;
-
-        const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${openaiKey}`
-            },
-            body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [{ role: 'user', content: prompt }]
-            })
-        });
-
-        const aiData = await aiRes.json();
-        const updatedMarkdown = aiData.choices[0].message.content.replace(/^```markdown\n?/, '').replace(/\n?```$/, '');
-
-        await saveMarkdownDirectly(updatedMarkdown, `feat(spec): добавить идею "${userIdea.slice(0, 20)}..."`);
-        document.getElementById('ideaText').value = '';
-
-    } catch (e) {
-        showLog('❌ Ошибка: ' + e.message);
-    } finally {
-        sendBtn.disabled = false;
-    }
-}
+    <script src="app.js"></script>
+</body>
+</html>
