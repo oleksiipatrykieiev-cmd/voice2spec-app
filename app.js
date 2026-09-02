@@ -281,21 +281,20 @@ async function processAndPush() {
             }
         }
 
-        showLog('🤖 Анализ идеи и структуры...');
+        showLog('🤖 Анализ идеи...');
 
-        // 2. Формирование Промпта с контекстом VEI
-        const systemPrompt = `Ты — Senior Technical Product Manager и AI-архитектор национального цифрового экосистемного хаба VEI (LINK AI).
+        // 2. Формирование упрощенного Промпта
+        const systemPrompt = `Ты — ассистент-архитектор проекта VEI.
+Твоя задача — сжато и четко сформулировать ПОЛЬЗОВАТЕЛЬСКУЮ ИДЕЮ в ОДНУ лаконичную задачу.
 
-КОНТЕКСТ ПРОЕКТА:
-- VEI — экосистема из 5 модулей: VEI LINK (ИИ-ассистент/лента), VEI SCAN (фото-скан), VEI Translate (переводчик), VEI Commune (сервисы), VEI Språk (язык).
+ПРАВИЛА:
+1. НЕ создавай список подзадач.
+2. НЕ придумывай отсебятину и технические шаги.
+3. Сформулируй ровно ОДНУ емкую строку задачи с чекбоксом (- [ ]).
+${imageUrlForMarkdown ? `4. Если есть медиафайл, добавь ссылку на него в конец задачи: ![Скриншот](${imageUrlForMarkdown})` : ''}
 
-ТВОЯ ЗАДАЧА:
-Проанализируй мысль пользователя (текст и/или прикрепленное фото).
-Сформируй из нее древовидное ТЗ для ИИ-разработчика и добавь его в конец Markdown-файла.
-1. Выдели Главную идею в виде родительского чекбокса: - [ ] **[ЭПИК] Название фичи**
-2. Ниже распиши логику и контекст (без чекбоксов).
-3. Разбей идею на конкретные подзадачи для разработки с чекбоксами (- [ ]).
-${imageUrlForMarkdown ? `4. Обязательно вставь ссылку на интерфейс/схему в формате: ![Скриншот](${imageUrlForMarkdown})` : ''}
+Пример формата:
+- [ ] **[Идея] Название:** Краткая суть мысли пользователя.
 
 Текущий файл:
 ${currentMarkdownContent}`;
@@ -304,7 +303,7 @@ ${currentMarkdownContent}`;
         if (userIdea) {
             userContent.push({ type: 'text', text: userIdea });
         } else {
-            userContent.push({ type: 'text', text: 'Проанализируй этот медиафайл и опиши задачи для реализации.' });
+            userContent.push({ type: 'text', text: 'Проанализируй этот медиафайл и опиши задачу.' });
         }
 
         if (fileInput && fileInput.files && fileInput.files[0]) {
@@ -336,7 +335,7 @@ ${currentMarkdownContent}`;
 
         // 4. Обновление файла на GitHub
         const commitText = userIdea ? `"${userIdea.slice(0, 25)}..."` : "с медиафайлом";
-        await saveMarkdownDirectly(updatedMarkdown, `feat(spec): добавить структурированную идею ${commitText}`);
+        await saveMarkdownDirectly(updatedMarkdown, `feat(spec): добавить идею ${commitText}`);
         
         // 5. Очистка полей ввода
         document.getElementById('ideaText').value = '';
