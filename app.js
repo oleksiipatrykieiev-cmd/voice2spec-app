@@ -134,7 +134,6 @@ function renderTreeList() {
             if (line.includes('[P:🔴]')) priority = '🔴';
             if (line.includes('[P:🟡]')) priority = '🟡';
 
-            // Фильтры
             if (!filterNew && isNew) return;
             if (!filterWip && isWip) return;
             if (!filterDone && isDone && !isDeleted) return;
@@ -159,7 +158,6 @@ function renderTreeList() {
             wrapper.style.marginLeft = `${indentLevel * 14}px`;
             wrapper.dataset.index = index;
 
-            // Действия свайпов
             const actionLeft = document.createElement('div');
             actionLeft.className = 'swipe-action-left';
             actionLeft.innerHTML = 'Удалить';
@@ -193,7 +191,6 @@ function renderTreeList() {
             wrapper.appendChild(card);
             tasksList.appendChild(wrapper);
 
-            // Логика двухстороннего свайпа
             let startX = 0, currentX = 0;
             card.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, {passive: true});
             card.addEventListener('touchmove', e => {
@@ -218,7 +215,6 @@ function renderTreeList() {
 
     if (!hasTasks) tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-4">Задач пока нет</div>';
 
-    // Drag and Drop
     if (sortableInstance) sortableInstance.destroy();
     sortableInstance = new Sortable(tasksList, {
         animation: 150,
