@@ -4,7 +4,6 @@ let branches = JSON.parse(localStorage.getItem('app_branches')) || [];
 let selectedParentTask = null;
 let activeModalLineIndex = null;
 let sortableInstance = null;
-let orderHasChanged = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('geminiKey').value = localStorage.getItem('openai_key') || '';
@@ -110,7 +109,6 @@ async function loadTasksFromGithub() {
 function renderTreeList() {
     const tasksList = document.getElementById('tasksList');
     tasksList.innerHTML = '';
-    orderHasChanged = false;
     document.getElementById('saveOrderBar').classList.add('hidden');
 
     const filterNew = document.getElementById('f_new').checked;
@@ -121,124 +119,106 @@ function renderTreeList() {
 
     let hasTasks = false;
 
-    // Автоматическая сортировка: Закрепленные строго НАВЕРХУ
-    const tasksWithMetadata = currentMarkdownLines.map((line, index) => {
+    currentMarkdownLines.forEach((line, index) => {
         const trimmed = line.trim();
-        const isTask = trimmed.startsWith('- [') || trimmed.startsWith('* [') || trimmed.startsWith('- ') || trimmed.startsWith('* ');
-        return {
-            line,
-            index,
-            isTask,
-            isPinned: line.includes('[📌]'),
-            isDone: line.includes('[x]'),
-            isDeleted: line.includes('~~')
-        };
-    });
+        if (trimmed.startsWith('- [') || trimmed.startsWith('* [') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+            
+            const isDone = line.includes('[x]');
+            const isDeleted = line.includes('~~');
+            const isWip = line.includes('[🛠️]');
+            const isNew = !isDone && !isDeleted && !isWip;
 
-    tasksWithMetadata.forEach((item) => {
-        if (!item.isTask) return;
+            const hasMedia = /!\[.*?\]\(.*?\)/.test(line);
+            const isPinned = line.includes('[📌]');
+            let priority = '⚪';
+            if (line.includes('[P:🔴]')) priority = '🔴';
+            if (line.includes('[P:🟡]')) priority = '🟡';
 
-        const line = item.line;
-        const index = item.index;
+            // Фильтры
+            if (!filterNew && isNew) return;
+            if (!filterWip && isWip) return;
+            if (!filterDone && isDone && !isDeleted) return;
+            if (!filterDel && isDeleted) return;
+            if (filterPri !== 'all' && priority !== filterPri) return;
 
-        const isDone = item.isDone;
-        const isDeleted = item.isDeleted;
-        const isWip = line.includes('[🛠️]');
-        const isNew = !isDone && !isDeleted && !isWip;
+            hasTasks = true;
 
-        const hasMedia = /!\[.*?\]\(.*?\)/.test(line);
-        const isPinned = item.isPinned;
-        let priority = '⚪';
-        if (line.includes('[P:🔴]')) priority = '🔴';
-        if (line.includes('[P:🟡]')) priority = '🟡';
+            const indentSpaces = line.search(/\S/);
+            const indentLevel = Math.floor(indentSpaces / 2);
 
-        // Фильтрация
-        if (!filterNew && isNew) return;
-        if (!filterWip && isWip) return;
-        if (!filterDone && isDone && !isDeleted) return;
-        if (!filterDel && isDeleted) return;
-        if (filterPri !== 'all' && priority !== filterPri) return;
+            let cleanText = line.replace(/^[\s-*]+(\[[ x]\])?\s*/, '')
+                                .replace(/\[📌\]/g, '')
+                                .replace(/\[P:[🔴🟡⚪]\]/g, '')
+                                .replace(/\[🛠️\]/g, '')
+                                .replace(/!\[.*?\]\(.*?\)/g, '')
+                                .replace(/~~/g, '')
+                                .trim();
 
-        hasTasks = true;
+            const wrapper = document.createElement('div');
+            wrapper.className = `swipe-wrap rounded-xl border my-1 bg-slate-800 ${isPinned ? 'border-amber-400 ring-1 ring-amber-400/30' : (isDone ? 'border-slate-800 bg-slate-900' : 'border-slate-700')}`;
+            wrapper.style.marginLeft = `${indentLevel * 14}px`;
+            wrapper.dataset.index = index;
 
-        const indentSpaces = line.search(/\S/);
-        const indentLevel = Math.floor(indentSpaces / 2);
+            // Действия свайпов
+            const actionLeft = document.createElement('div');
+            actionLeft.className = 'swipe-action-left';
+            actionLeft.innerHTML = 'Удалить';
+            actionLeft.onclick = () => confirmDeleteBranch(index);
 
-        let cleanText = line.replace(/^[\s-*]+(\[[ x]\])?\s*/, '')
-                            .replace(/\[📌\]/g, '')
-                            .replace(/\[P:[🔴🟡⚪]\]/g, '')
-                            .replace(/\[🛠️\]/g, '')
-                            .replace(/!\[.*?\]\(.*?\)/g, '')
-                            .replace(/~~/g, '')
-                            .trim();
+            const actionRight = document.createElement('div');
+            actionRight.className = 'swipe-action-right';
+            actionRight.innerHTML = 'Меню ⚙️';
+            actionRight.onclick = () => openCardModal(index);
 
-        const wrapper = document.createElement('div');
-        wrapper.className = `swipe-wrap rounded-xl border my-1 bg-slate-800 ${isPinned ? 'border-amber-400 ring-1 ring-amber-400/30' : (isDone ? 'border-slate-800 bg-slate-900' : 'border-slate-700')}`;
-        wrapper.style.marginLeft = `${indentLevel * 14}px`;
-        wrapper.dataset.index = index;
+            const card = document.createElement('div');
+            card.className = `swipe-content flex items-center justify-between p-3 bg-slate-800 rounded-xl text-xs touch-pan-y ${isDone || isDeleted ? 'text-slate-500 line-through bg-slate-900' : 'text-slate-100'}`;
 
-        // Действия свайпов
-        const actionLeft = document.createElement('div');
-        actionLeft.className = 'swipe-action-left';
-        actionLeft.innerHTML = 'Удалить';
-        actionLeft.onclick = () => confirmDeleteBranch(index);
+            const treeBranchIcon = indentLevel > 0 ? '<span class="text-indigo-400/80 font-bold mr-1">└─</span>' : '';
 
-        const actionRight = document.createElement('div');
-        actionRight.className = 'swipe-action-right';
-        actionRight.innerHTML = 'Меню ⚙️';
-        actionRight.onclick = () => openCardModal(index);
+            card.innerHTML = `
+                <div class="flex items-center gap-2 flex-1 min-w-0 pr-1 drag-handle select-none">
+                    ${treeBranchIcon}
+                    <button onclick="openCardModal(${index})" class="text-xs cursor-pointer shrink-0">${priority}</button>
+                    ${isPinned ? '<span class="text-amber-400 text-xs shrink-0" title="Закреплено">📌</span>' : ''}
+                    ${isWip ? '<span class="text-amber-400 text-[10px] font-bold bg-amber-950 px-1.5 py-0.5 rounded border border-amber-600/40 shrink-0">В работе 🛠️</span>' : ''}
+                    <input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleTaskDone(${index})" class="rounded border-slate-700 text-indigo-600 focus:ring-0 shrink-0">
+                    <span class="break-all font-sans text-xs leading-snug flex-1">${cleanText}</span>
+                    ${hasMedia ? '<span class="text-slate-400 shrink-0 ml-1">📎</span>' : ''}
+                </div>
+                <button onclick="openCardModal(${index})" class="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 shrink-0 ml-1" title="Настройки">⚙️</button>
+            `;
 
-        const card = document.createElement('div');
-        card.className = `swipe-content flex items-center justify-between p-3 bg-slate-800 rounded-xl text-xs touch-pan-y ${isDone || isDeleted ? 'text-slate-500 line-through bg-slate-900' : 'text-slate-100'}`;
+            wrapper.appendChild(actionLeft);
+            wrapper.appendChild(actionRight);
+            wrapper.appendChild(card);
+            tasksList.appendChild(wrapper);
 
-        // Декоративные ветки дерева
-        const treeBranchIcon = indentLevel > 0 ? '<span class="text-indigo-400/60 font-bold mr-1">└─</span>' : '';
-
-        card.innerHTML = `
-            <div class="flex items-center gap-2 flex-1 min-w-0 pr-1 drag-handle select-none">
-                ${treeBranchIcon}
-                <button onclick="openCardModal(${index})" class="text-xs cursor-pointer shrink-0">${priority}</button>
-                ${isPinned ? '<span class="text-amber-400 text-xs shrink-0" title="Закреплено">📌</span>' : ''}
-                ${isWip ? '<span class="text-amber-400 text-[10px] font-bold bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-600/40 shrink-0">В работе 🛠️</span>' : ''}
-                <input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleTaskDone(${index})" class="rounded border-slate-700 text-indigo-600 focus:ring-0 shrink-0">
-                <span class="break-all font-sans text-xs leading-snug flex-1">${cleanText}</span>
-                ${hasMedia ? '<span class="text-slate-400 shrink-0 ml-1">📎</span>' : ''}
-            </div>
-            <button onclick="openCardModal(${index})" class="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 shrink-0 ml-1" title="Настройки">⚙️</button>
-        `;
-
-        wrapper.appendChild(actionLeft);
-        wrapper.appendChild(actionRight);
-        wrapper.appendChild(card);
-        tasksList.appendChild(wrapper);
-
-        // Логика двухстороннего свайпа
-        let startX = 0, currentX = 0;
-        card.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, {passive: true});
-        card.addEventListener('touchmove', e => {
-            currentX = e.touches[0].clientX;
-            let diff = currentX - startX;
-            if (Math.abs(diff) < 120) card.style.transform = `translateX(${diff}px)`;
-        }, {passive: true});
-        card.addEventListener('touchend', e => {
-            let diff = currentX - startX;
-            if (diff < -60) {
-                // Свайп ВЛЕВО -> Удаление
-                card.style.transform = `translateX(-90px)`;
-                setTimeout(() => { if (wrapper.parentElement) card.style.transform = `translateX(0)`; }, 3500);
-            } else if (diff > 60) {
-                // Свайп ВПРАВО -> Меню
-                card.style.transform = `translateX(90px)`;
-                setTimeout(() => { openCardModal(index); card.style.transform = `translateX(0)`; }, 200);
-            } else {
-                card.style.transform = `translateX(0)`;
-            }
-        });
+            // Логика двухстороннего свайпа
+            let startX = 0, currentX = 0;
+            card.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, {passive: true});
+            card.addEventListener('touchmove', e => {
+                currentX = e.touches[0].clientX;
+                let diff = currentX - startX;
+                if (Math.abs(diff) < 120) card.style.transform = `translateX(${diff}px)`;
+            }, {passive: true});
+            card.addEventListener('touchend', e => {
+                let diff = currentX - startX;
+                if (diff < -60) {
+                    card.style.transform = `translateX(-90px)`;
+                    setTimeout(() => { if (wrapper.parentElement) card.style.transform = `translateX(0)`; }, 3500);
+                } else if (diff > 60) {
+                    card.style.transform = `translateX(90px)`;
+                    setTimeout(() => { openCardModal(index); card.style.transform = `translateX(0)`; }, 200);
+                } else {
+                    card.style.transform = `translateX(0)`;
+                }
+            });
+        }
     });
 
     if (!hasTasks) tasksList.innerHTML = '<div class="text-xs text-slate-500 text-center py-4">Задач пока нет</div>';
 
-    // Инициализация Drag and Drop
+    // Drag and Drop
     if (sortableInstance) sortableInstance.destroy();
     sortableInstance = new Sortable(tasksList, {
         animation: 150,
@@ -251,7 +231,6 @@ function renderTreeList() {
     });
 }
 
-// Модальное окно функций карточки
 function openCardModal(lineIndex) {
     activeModalLineIndex = lineIndex;
     document.getElementById('cardModal').classList.remove('hidden');
@@ -340,7 +319,6 @@ function toggleTaskDone(lineIndex) {
     }
 }
 
-// Удаление родительской ветки и всех дочерних комментариев
 function confirmDeleteBranch(lineIndex) {
     if (!confirm('Точно удалить эту идею и все ее вложенные комментарии?')) return;
 
@@ -374,7 +352,6 @@ function moveToBottom(lineIndex) {
     saveMarkdownDirectly('fix(spec): перемещение выполненного вниз');
 }
 
-// Ручная сортировка
 function applyDOMReorder(oldDOMIndex, newDOMIndex) {
     const items = document.querySelectorAll('.swipe-wrap');
     if (items.length === 0) return;
@@ -385,7 +362,6 @@ function applyDOMReorder(oldDOMIndex, newDOMIndex) {
     if (oldLineIndex !== targetLineIndex) {
         const line = currentMarkdownLines.splice(oldLineIndex, 1)[0];
         currentMarkdownLines.splice(targetLineIndex, 0, line);
-        orderHasChanged = true;
         document.getElementById('saveOrderBar').classList.remove('hidden');
     }
 }
